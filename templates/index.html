@@ -1,0 +1,521 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Intelligent Web Application Security Scanner</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', sans-serif;
+            background: #0D1B2A;
+            color: #e2e8f0;
+            min-height: 100vh;
+        }
+        .header {
+            background: linear-gradient(135deg, #0D1B2A, #1a3a5c);
+            padding: 20px 40px;
+            border-bottom: 3px solid #0D9488;
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+        .header h1 {
+            font-size: 22px;
+            color: #fff;
+            font-weight: 700;
+        }
+        .header p {
+            font-size: 12px;
+            color: #94a3b8;
+            margin-top: 3px;
+        }
+        .shield {
+            font-size: 36px;
+        }
+        .container {
+            max-width: 1100px;
+            margin: 30px auto;
+            padding: 0 20px;
+        }
+        .scan-card {
+            background: #1e293b;
+            border-radius: 12px;
+            padding: 30px;
+            margin-bottom: 24px;
+            border: 1px solid #334155;
+        }
+        .scan-card h2 {
+            font-size: 16px;
+            color: #0D9488;
+            margin-bottom: 16px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        .input-group {
+            display: flex;
+            gap: 12px;
+        }
+        .input-group input {
+            flex: 1;
+            padding: 12px 16px;
+            background: #0D1B2A;
+            border: 1px solid #475569;
+            border-radius: 8px;
+            color: #e2e8f0;
+            font-size: 14px;
+            outline: none;
+        }
+        .input-group input:focus {
+            border-color: #0D9488;
+        }
+        .btn-scan {
+            padding: 12px 28px;
+            background: #0D9488;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .btn-scan:hover { background: #0f766e; }
+        .btn-scan:disabled {
+            background: #475569;
+            cursor: not-allowed;
+        }
+        .progress-bar {
+            width: 100%;
+            height: 8px;
+            background: #334155;
+            border-radius: 4px;
+            margin-top: 16px;
+            overflow: hidden;
+            display: none;
+        }
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #0D9488, #10b981);
+            border-radius: 4px;
+            transition: width 0.5s ease;
+            width: 0%;
+        }
+        .status-text {
+            font-size: 13px;
+            color: #94a3b8;
+            margin-top: 8px;
+            display: none;
+        }
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+        .stat-card {
+            background: #1e293b;
+            border-radius: 10px;
+            padding: 20px;
+            text-align: center;
+            border: 1px solid #334155;
+        }
+        .stat-value {
+            font-size: 32px;
+            font-weight: 800;
+            color: #0D9488;
+        }
+        .stat-value.critical { color: #ef4444; }
+        .stat-value.high { color: #f97316; }
+        .stat-value.medium { color: #f59e0b; }
+        .stat-value.low { color: #10b981; }
+        .stat-label {
+            font-size: 12px;
+            color: #64748b;
+            margin-top: 4px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .results-section { display: none; }
+        .vuln-card {
+            background: #1e293b;
+            border-radius: 10px;
+            margin-bottom: 16px;
+            overflow: hidden;
+            border: 1px solid #334155;
+        }
+        .vuln-header {
+            padding: 16px 20px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            cursor: pointer;
+        }
+        .vuln-header.critical { border-left: 4px solid #ef4444; }
+        .vuln-header.high { border-left: 4px solid #f97316; }
+        .vuln-header.medium { border-left: 4px solid #f59e0b; }
+        .vuln-header.low { border-left: 4px solid #10b981; }
+        .severity-badge {
+            padding: 4px 10px;
+            border-radius: 20px;
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+        }
+        .badge-critical {
+            background: #fef2f2;
+            color: #ef4444;
+        }
+        .badge-high {
+            background: #fff7ed;
+            color: #f97316;
+        }
+        .badge-medium {
+            background: #fffbeb;
+            color: #f59e0b;
+        }
+        .badge-low {
+            background: #f0fdf4;
+            color: #10b981;
+        }
+        .vuln-title {
+            font-size: 14px;
+            font-weight: 700;
+            color: #e2e8f0;
+            flex: 1;
+        }
+        .vuln-confidence {
+            font-size: 12px;
+            color: #64748b;
+        }
+        .vuln-body {
+            padding: 20px;
+            border-top: 1px solid #334155;
+            display: none;
+        }
+        .vuln-body.open { display: block; }
+        .detail-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+            margin-bottom: 16px;
+        }
+        .detail-item label {
+            font-size: 11px;
+            color: #64748b;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            display: block;
+            margin-bottom: 4px;
+        }
+        .detail-item span {
+            font-size: 13px;
+            color: #e2e8f0;
+            font-family: 'Courier New', monospace;
+        }
+        .evidence-box {
+            background: #0D1B2A;
+            border-radius: 6px;
+            padding: 12px;
+            margin: 12px 0;
+        }
+        .evidence-box p {
+            font-size: 12px;
+            color: #94a3b8;
+            margin-bottom: 4px;
+        }
+        .recommendation-box {
+            background: #0f2d1f;
+            border: 1px solid #10b981;
+            border-radius: 6px;
+            padding: 12px;
+            margin-top: 12px;
+        }
+        .recommendation-box h4 {
+            color: #10b981;
+            font-size: 12px;
+            margin-bottom: 6px;
+            text-transform: uppercase;
+        }
+        .recommendation-box p {
+            font-size: 12px;
+            color: #94a3b8;
+            line-height: 1.6;
+        }
+        .no-results {
+            text-align: center;
+            padding: 40px;
+            color: #64748b;
+        }
+        .section-title {
+            font-size: 14px;
+            font-weight: 700;
+            color: #0D9488;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 16px;
+        }
+        .alert {
+            padding: 12px 16px;
+            border-radius: 8px;
+            font-size: 13px;
+            margin-bottom: 16px;
+        }
+        .alert-error {
+            background: #1f0e0e;
+            border: 1px solid #ef4444;
+            color: #fca5a5;
+        }
+        .alert-success {
+            background: #0f2d1f;
+            border: 1px solid #10b981;
+            color: #6ee7b7;
+        }
+    </style>
+</head>
+<body>
+
+<div class="header">
+    <div class="shield">🛡️</div>
+    <div>
+        <h1>Intelligent Web Application Security Scanner</h1>
+        <p>Design and Implementation of an Intelligent Web Application Security Scanner
+           for Detecting Hidden Threats Using Machine Learning</p>
+    </div>
+</div>
+
+<div class="container">
+
+    <!-- Scan Input -->
+    <div class="scan-card">
+        <h2>🎯 Configure Scan</h2>
+        <div class="input-group">
+            <input type="text" id="targetUrl"
+                   placeholder="Enter target URL e.g. http://localhost"
+                   value="http://localhost"/>
+            <button class="btn-scan" id="scanBtn" onclick="startScan()">
+                Start Scan
+            </button>
+        </div>
+        <div class="progress-bar" id="progressBar">
+            <div class="progress-fill" id="progressFill"></div>
+        </div>
+        <div class="status-text" id="statusText"></div>
+    </div>
+
+    <!-- Stats -->
+    <div class="stats-grid">
+        <div class="stat-card">
+            <div class="stat-value" id="totalCount">0</div>
+            <div class="stat-label">Total Found</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value critical" id="criticalCount">0</div>
+            <div class="stat-label">Critical</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value high" id="highCount">0</div>
+            <div class="stat-label">High</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value medium" id="mediumCount">0</div>
+            <div class="stat-label">Medium</div>
+        </div>
+    </div>
+
+    <!-- Results -->
+    <div class="results-section" id="resultsSection">
+        <div class="section-title">📋 Vulnerability Report</div>
+        <div id="resultsContainer"></div>
+    </div>
+
+</div>
+
+<script>
+    let scanInterval = null;
+
+    function startScan() {
+        const targetUrl = document.getElementById('targetUrl').value.trim();
+        if (!targetUrl) {
+            alert('Please enter a target URL');
+            return;
+        }
+
+        // Reset UI
+        document.getElementById('scanBtn').disabled = true;
+        document.getElementById('scanBtn').textContent = 'Scanning...';
+        document.getElementById('progressBar').style.display = 'block';
+        document.getElementById('statusText').style.display = 'block';
+        document.getElementById('statusText').textContent =
+            'Initialising scan...';
+        document.getElementById('resultsSection').style.display = 'none';
+        document.getElementById('resultsContainer').innerHTML = '';
+        updateStats([], 0);
+
+        // Start scan
+        const formData = new FormData();
+        formData.append('target_url', targetUrl);
+
+        fetch('/scan', { method: 'POST', body: formData })
+            .then(r => r.json())
+            .then(data => {
+                if (data.error) {
+                    showError(data.error);
+                    return;
+                }
+                // Poll for results
+                scanInterval = setInterval(pollResults, 2000);
+            })
+            .catch(e => showError(e.message));
+    }
+
+    function pollResults() {
+        fetch('/results')
+            .then(r => r.json())
+            .then(data => {
+                const progress = data.progress || 0;
+                document.getElementById('progressFill').style.width =
+                    progress + '%';
+
+                const messages = {
+                    0: 'Initialising...',
+                    20: 'Crawling target — discovering endpoints...',
+                    50: 'Fuzzing — injecting payloads...',
+                    70: 'Analyzing responses — extracting features...',
+                    90: 'ML Classification — detecting anomalies...',
+                    100: 'Generating vulnerability report...'
+                };
+                const msg = messages[progress] || `Progress: ${progress}%`;
+                document.getElementById('statusText').textContent = msg;
+
+                if (data.status === 'complete') {
+                    clearInterval(scanInterval);
+                    showResults(data.vulnerabilities);
+                } else if (data.status === 'error') {
+                    clearInterval(scanInterval);
+                    showError(data.error || 'Scan failed');
+                }
+            });
+    }
+
+    function showResults(vulns) {
+        document.getElementById('scanBtn').disabled = false;
+        document.getElementById('scanBtn').textContent = 'Start Scan';
+        document.getElementById('statusText').textContent =
+            `Scan complete — ${vulns.length} vulnerabilities found`;
+        document.getElementById('progressFill').style.width = '100%';
+
+        updateStats(vulns, 100);
+
+        const container = document.getElementById('resultsContainer');
+        document.getElementById('resultsSection').style.display = 'block';
+
+        if (vulns.length === 0) {
+            container.innerHTML =
+                '<div class="no-results">✅ No vulnerabilities detected</div>';
+            return;
+        }
+
+        container.innerHTML = vulns.map((v, i) => `
+            <div class="vuln-card">
+                <div class="vuln-header ${v.severity.toLowerCase()}"
+                     onclick="toggleDetail(${i})">
+                    <span class="severity-badge badge-${v.severity.toLowerCase()}">
+                        ${v.severity}
+                    </span>
+                    <span class="vuln-title">
+                        ${v.id} — ${v.vulnerability_type}
+                    </span>
+                    <span class="vuln-confidence">
+                        ${v.confidence}% confidence
+                    </span>
+                </div>
+                <div class="vuln-body" id="detail-${i}">
+                    <div class="detail-grid">
+                        <div class="detail-item">
+                            <label>Vulnerable URL</label>
+                            <span>${v.vulnerable_url}</span>
+                        </div>
+                        <div class="detail-item">
+                            <label>Input Field</label>
+                            <span>${v.input_field}</span>
+                        </div>
+                        <div class="detail-item">
+                            <label>Payload Used</label>
+                            <span>${escapeHtml(v.payload_used)}</span>
+                        </div>
+                        <div class="detail-item">
+                            <label>CVSS Score</label>
+                            <span>${v.cvss_score}</span>
+                        </div>
+                        <div class="detail-item">
+                            <label>Status Code</label>
+                            <span>${v.status_code}</span>
+                        </div>
+                        <div class="detail-item">
+                            <label>Response Time</label>
+                            <span>${v.response_time}s</span>
+                        </div>
+                        <div class="detail-item">
+                            <label>Detection Method</label>
+                            <span>${v.detection_method}</span>
+                        </div>
+                        <div class="detail-item">
+                            <label>Timestamp</label>
+                            <span>${v.timestamp}</span>
+                        </div>
+                    </div>
+                    <div class="evidence-box">
+                        <p><strong>Evidence:</strong></p>
+                        ${v.evidence.map(e => `<p>• ${e}</p>`).join('')}
+                    </div>
+                    <div class="evidence-box">
+                        <p><strong>Description:</strong></p>
+                        <p>${v.description}</p>
+                    </div>
+                    <div class="evidence-box">
+                        <p><strong>Reproduction Steps:</strong></p>
+                        ${v.reproduction_steps.map(
+                            s => `<p>${escapeHtml(s)}</p>`
+                        ).join('')}
+                    </div>
+                    <div class="recommendation-box">
+                        <h4>🔧 Recommendation</h4>
+                        <p>${v.recommendation}</p>
+                    </div>
+                </div>
+            </div>
+        `).join('');
+    }
+
+    function toggleDetail(i) {
+        const body = document.getElementById(`detail-${i}`);
+        body.classList.toggle('open');
+    }
+
+    function updateStats(vulns, progress) {
+        document.getElementById('totalCount').textContent = vulns.length;
+        document.getElementById('criticalCount').textContent =
+            vulns.filter(v => v.severity === 'Critical').length;
+        document.getElementById('highCount').textContent =
+            vulns.filter(v => v.severity === 'High').length;
+        document.getElementById('mediumCount').textContent =
+            vulns.filter(v => v.severity === 'Medium').length;
+    }
+
+    function showError(msg) {
+        document.getElementById('scanBtn').disabled = false;
+        document.getElementById('scanBtn').textContent = 'Start Scan';
+        document.getElementById('statusText').textContent = 'Error: ' + msg;
+        if (scanInterval) clearInterval(scanInterval);
+    }
+
+    function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.appendChild(document.createTextNode(text));
+        return div.innerHTML;
+    }
+</script>
+
+</body>
+</html>
