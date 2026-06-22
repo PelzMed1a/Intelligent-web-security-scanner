@@ -26,9 +26,8 @@ class Classifier:
     def _generate_training_data(self):
         """
         Generate synthetic training data based on known
-        vulnerability behavioral patterns.
-        In production this would be replaced with real
-        collected data from DVWA scanning sessions.
+        vulnerability behavioral patterns, calibrated for
+        local testing environments (low network latency).
         """
         np.random.seed(42)
         n_normal = 300
@@ -36,81 +35,81 @@ class Classifier:
 
         # ── Normal responses ─────────────────────────────────────────
         normal_data = np.column_stack([
-            np.random.uniform(0.1, 0.5, n_normal),   # F1: response time
-            np.random.uniform(0.0, 0.05, n_normal),   # F2: time deviation
-            np.full(n_normal, 200),                    # F3: status code
-            np.zeros(n_normal),                        # F4: status changed
-            np.random.randint(1000, 5000, n_normal),   # F5: content length
-            np.random.uniform(0, 50, n_normal),        # F6: length deviation
-            np.random.uniform(0.95, 1.05, n_normal),  # F7: length ratio
-            np.zeros(n_normal),                        # F8: error keywords
-            np.zeros(n_normal),                        # F9: sensitive data
-            np.zeros(n_normal),                        # F10: xss reflected
-            np.zeros(n_normal),                        # F11: redirect
-            np.zeros(n_normal),                        # F12: server error
-            np.zeros(n_normal),                        # F13: content type change
-            np.random.randint(0, 5, n_normal),         # F14: payload type
-            np.zeros(n_normal)                         # F15: timeout
+            np.random.uniform(0.001, 0.05, n_normal),  # F1: response time (fast, local)
+            np.random.uniform(0.0, 0.01, n_normal),     # F2: time deviation
+            np.full(n_normal, 200),                     # F3: status code
+            np.zeros(n_normal),                         # F4: status changed
+            np.random.randint(1000, 5000, n_normal),    # F5: content length
+            np.random.uniform(0, 50, n_normal),         # F6: length deviation
+            np.random.uniform(0.95, 1.05, n_normal),   # F7: length ratio
+            np.zeros(n_normal),                         # F8: error keywords
+            np.zeros(n_normal),                         # F9: sensitive data
+            np.zeros(n_normal),                         # F10: xss reflected
+            np.zeros(n_normal),                         # F11: redirect
+            np.zeros(n_normal),                         # F12: server error
+            np.zeros(n_normal),                         # F13: content type change
+            np.random.randint(0, 5, n_normal),          # F14: payload type
+            np.zeros(n_normal)                          # F15: timeout
         ])
         normal_labels = np.zeros(n_normal)
 
-        # ── SQL Injection responses ───────────────────────────────────
+        # ── SQL Injection responses (local timing) ─────────────────────
         sqli_data = np.column_stack([
-            np.random.uniform(3.0, 8.0, n_vuln//3),   # F1: slow response
-            np.random.uniform(2.5, 7.5, n_vuln//3),   # F2: high deviation
-            np.random.choice([200, 500], n_vuln//3),   # F3: status
-            np.random.randint(0, 2, n_vuln//3),        # F4: status change
-            np.random.randint(500, 8000, n_vuln//3),   # F5: content length
-            np.random.uniform(200, 3000, n_vuln//3),   # F6: high deviation
-            np.random.uniform(0.5, 2.5, n_vuln//3),   # F7: high ratio
-            np.random.randint(1, 5, n_vuln//3),        # F8: error keywords
-            np.zeros(n_vuln//3),                       # F9: sensitive data
-            np.zeros(n_vuln//3),                       # F10: xss
-            np.zeros(n_vuln//3),                       # F11: redirect
-            np.random.randint(0, 2, n_vuln//3),        # F12: server error
-            np.zeros(n_vuln//3),                       # F13: content type
-            np.ones(n_vuln//3),                        # F14: sqli payload
-            np.random.randint(0, 2, n_vuln//3)         # F15: timeout
+            np.random.uniform(0.003, 0.08, n_vuln//3), # F1: still fast locally, but distinguishable
+            np.random.uniform(0.002, 0.05, n_vuln//3), # F2: slightly higher deviation
+            np.random.choice([200, 500], n_vuln//3),    # F3: status
+            np.random.randint(0, 2, n_vuln//3),         # F4: status change
+            np.random.randint(500, 8000, n_vuln//3),    # F5: content length
+            np.random.uniform(200, 3000, n_vuln//3),    # F6: high deviation
+            np.random.uniform(0.5, 2.5, n_vuln//3),    # F7: high ratio
+            np.random.randint(1, 5, n_vuln//3),         # F8: error keywords
+            np.zeros(n_vuln//3),                        # F9: sensitive data
+            np.zeros(n_vuln//3),                        # F10: xss
+            np.zeros(n_vuln//3),                        # F11: redirect
+            np.random.randint(0, 2, n_vuln//3),         # F12: server error
+            np.zeros(n_vuln//3),                        # F13: content type
+            np.ones(n_vuln//3),                         # F14: sqli payload
+            np.zeros(n_vuln//3)                         # F15: timeout
         ])
         sqli_labels = np.ones(n_vuln//3)
 
         # ── XSS responses ─────────────────────────────────────────────
         xss_data = np.column_stack([
-            np.random.uniform(0.1, 0.4, n_vuln//3),   # F1: normal time
-            np.random.uniform(0.0, 0.1, n_vuln//3),   # F2: low deviation
-            np.full(n_vuln//3, 200),                   # F3: 200 OK
-            np.zeros(n_vuln//3),                       # F4: no status change
-            np.random.randint(2000, 8000, n_vuln//3),  # F5: larger content
-            np.random.uniform(500, 2000, n_vuln//3),   # F6: length change
-            np.random.uniform(1.2, 2.5, n_vuln//3),   # F7: higher ratio
-            np.zeros(n_vuln//3),                       # F8: no db errors
-            np.zeros(n_vuln//3),                       # F9: no sensitive
-            np.random.randint(1, 4, n_vuln//3),        # F10: xss reflected
-            np.zeros(n_vuln//3),                       # F11: no redirect
-            np.zeros(n_vuln//3),                       # F12: no server error
-            np.zeros(n_vuln//3),                       # F13: content type
-            np.full(n_vuln//3, 2),                     # F14: xss payload
-            np.zeros(n_vuln//3)                        # F15: no timeout
+            np.random.uniform(0.001, 0.04, n_vuln//3), # F1: normal local time
+            np.random.uniform(0.0, 0.01, n_vuln//3),   # F2: low deviation
+            np.full(n_vuln//3, 200),                    # F3: 200 OK
+            np.zeros(n_vuln//3),                        # F4: no status change
+            np.random.randint(2000, 8000, n_vuln//3),   # F5: larger content
+            np.random.uniform(500, 2000, n_vuln//3),    # F6: length change
+            np.random.uniform(1.2, 2.5, n_vuln//3),    # F7: higher ratio
+            np.zeros(n_vuln//3),                        # F8: no db errors
+            np.zeros(n_vuln//3),                        # F9: no sensitive
+            np.random.randint(1, 4, n_vuln//3),         # F10: xss reflected
+            np.zeros(n_vuln//3),                        # F11: no redirect
+            np.zeros(n_vuln//3),                        # F12: no server error
+            np.zeros(n_vuln//3),                        # F13: content type
+            np.full(n_vuln//3, 2),                      # F14: xss payload
+            np.zeros(n_vuln//3)                         # F15: no timeout
         ])
         xss_labels = np.ones(n_vuln//3)
 
         # ── Path Traversal responses ──────────────────────────────────
         path_data = np.column_stack([
-            np.random.uniform(0.1, 0.5, n_vuln//3),   # F1: response time
-            np.random.uniform(0.0, 0.2, n_vuln//3),   # F2: deviation
-            np.random.choice([200, 403], n_vuln//3),   # F3: status
-            np.random.randint(0, 2, n_vuln//3),        # F4: status change
-            np.random.randint(500, 10000, n_vuln//3),  # F5: content length
-            np.random.uniform(100, 5000, n_vuln//3),   # F6: deviation
-            np.random.uniform(0.8, 3.0, n_vuln//3),   # F7: ratio
-            np.zeros(n_vuln//3),                       # F8: no db errors
-            np.random.randint(0, 3, n_vuln//3),        # F9: sensitive data
-            np.zeros(n_vuln//3),                       # F10: no xss
-            np.zeros(n_vuln//3),                       # F11: no redirect
-            np.zeros(n_vuln//3),                       # F12: no server error
-            np.random.randint(0, 2, n_vuln//3),        # F13: content change
-            np.full(n_vuln//3, 3),                     # F14: path payload
-            np.zeros(n_vuln//3)                        # F15: no timeout
+            np.random.uniform(0.001, 0.05, n_vuln//3), # F1: response time
+            np.random.uniform(0.0, 0.02, n_vuln//3),   # F2: deviation
+            np.random.choice([200, 403], n_vuln//3),    # F3: status
+            np.random.randint(0, 2, n_vuln//3),         # F4: status change
+            np.random.randint(500, 10000, n_vuln//3),   # F5: content length
+            np.random.uniform(100, 5000, n_vuln//3),    # F6: deviation
+            np.random.uniform(0.8, 3.0, n_vuln//3),    # F7: ratio
+            np.zeros(n_vuln//3),                        # F8: no db errors
+            np.random.randint(0, 3, n_vuln//3),         # F9: sensitive data
+            np.zeros(n_vuln//3),                        # F10: no xss
+            np.zeros(n_vuln//3),                        # F11: no redirect
+            np.zeros(n_vuln//3),                        # F12: no server error
+            np.random.randint(0, 2, n_vuln//3),         # F13: content change
+            np.full(n_vuln//3, 3),                      # F14: path payload
+            np.zeros(n_vuln//3)                         # F15: no timeout
         ])
         path_labels = np.ones(n_vuln//3)
 
@@ -169,7 +168,6 @@ class Classifier:
         # Random Forest predictions (0=normal, 1=vulnerable)
         rf_predictions = self.rf_model.predict(X_scaled)
         rf_probabilities = self.rf_model.predict_proba(X_scaled)
-
         # Isolation Forest predictions (-1=anomaly, 1=normal)
         iso_predictions = self.iso_model.predict(X_scaled)
 
