@@ -12,8 +12,11 @@ class Crawler:
             'User-Agent': 'Mozilla/5.0 (Scanner Research Tool)'
         })
 
-        # Login to DVWA automatically
-        self._login()
+        # Login to DVWA automatically only if target is DVWA
+        if 'localhost' in base_url and '3000' not in base_url:
+            self._login()
+        else:
+            print("[*] Non-DVWA target detected - skipping auto-login")
 
     def _login(self):
         """Log into DVWA before crawling"""
