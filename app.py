@@ -52,8 +52,19 @@ def run_scan(target_url):
     try:
         # Phase 1: Crawl
         print(f"[*] Starting crawl on {target_url}")
+
         crawler = Crawler(target_url)
-        endpoints = crawler.crawl()
+
+        try:
+            endpoints = crawler.crawl()
+            print("=" * 60)
+            print(f"Endpoints found: {len(endpoints)}")
+            for i, ep in enumerate(endpoints, 1):
+                print(f"{i}. {ep['url']}")
+            print("=" * 60)
+        finally:
+            crawler.close()
+
         scan_results['progress'] = 20
         print(f"[*] Found {len(endpoints)} endpoints")
 

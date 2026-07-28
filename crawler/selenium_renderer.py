@@ -26,6 +26,8 @@ class SeleniumRenderer:
 
     def render(self, url, wait=3):
         self.driver.get(url)
+        print(self.driver.current_url)
+        print(self.driver.page_source[:1000])
         time.sleep(wait)
         return self.driver.page_source
 

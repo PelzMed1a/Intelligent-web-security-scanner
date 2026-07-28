@@ -252,7 +252,7 @@ class Classifier:
             evidence.append("Server returned HTTP 500 error (possible injection-triggered crash)")
         if not evidence:
             evidence.append(
-                "Behavioral anomaly detected by ML classification engine"
+                "The Isolation Forest model identified a significant deviation from the baseline response behaviour after the payload was submitted."
             )
 
         return evidence

@@ -179,8 +179,17 @@ class Reporter:
     def _get_detection_method(self, detection):
         """Describe which models detected this vulnerability"""
         methods = []
+
         if detection['rf_detected']:
-            methods.append('Random Forest Classifier')
+            methods.append("Random Forest Classification")
+
         if detection['iso_detected']:
-            methods.append('Isolation Forest Anomaly Detection')
-        return ' + '.join(methods) if methods else 'ML Ensemble'
+            methods.append("Isolation Forest Behavioral Analysis")
+
+        if len(methods) == 2:
+            return "ML Ensemble (Random Forest + Isolation Forest)"
+
+        if methods:
+            return methods[0]
+
+        return "Rule-Based Detection"
