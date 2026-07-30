@@ -81,8 +81,8 @@ class Crawler:
         print(f"[CRAWLING] {url}")
 
         try:
-                response = self.session.get(url, timeout=10)
-                html = response.text
+            response = self.session.get(url, timeout=10)
+            html = response.text
 
             soup = BeautifulSoup(html, "html.parser")
 
