@@ -10,6 +10,7 @@ class Crawler:
         self.visited = set()
         self.endpoints = []
         self.session = requests.Session()
+        self.renderer = SeleniumRenderer(headless=True)
         self.session.headers.update({
             'User-Agent': 'Mozilla/5.0 (Scanner Research Tool)'
         })
@@ -81,8 +82,7 @@ class Crawler:
         print(f"[CRAWLING] {url}")
 
         try:
-                response = self.session.get(url, timeout=10)
-                html = response.text
+            html = self.renderer.render(url)
 
             soup = BeautifulSoup(html, "html.parser")
 
@@ -99,6 +99,24 @@ class Crawler:
 
                 if parsed.netloc == urlparse(self.base_url).netloc:
                     self._crawl_page(full_url)
+
+            # DIscover Angular/SPA hash routes
+            for link in soup.find_all("a"):
+
+                href = link.get("href")
+
+                if href and href.startswitch("#/"):
+
+                    full_url = self.base_url.rstrip("/") + "/" + href
+                    
+                    if full_url not in self.visited:
+                        print(f"[SPA ROUTE] {full_url}")
+                        self._crawl_page(full_url)
+
+            # Discover buttons with router links
+            buttons = soup.find_all(["button", "mat-button"])
+
+            print(f"[INFO] Found {len(buttons)} buttons")
 
         except Exception as e:
             print(f"[!] Error crawling {url}: {e}")
@@ -139,4 +157,5 @@ class Crawler:
         return None
 
     def close(self):
+        """Close Selenium browser"""
         self.renderer.close()
