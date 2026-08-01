@@ -43,9 +43,10 @@ class Reporter:
                 'payload_used': detection['payload'],
                 'response_time': round(detection['response_time'], 3),
                 'status_code': detection['status_code'],
-                'evidence': detection['evidence'],
+                'evidence': self._build_evidence_summary(detection),
                 'description': self._get_description(
-                    detection['vulnerability_type']
+                    detection['vulnerability_type'],
+                    self._get_verification_status(detection)
                 ),
                 'impact': self._get_impact(
                     detection['vulnerability_type']
@@ -55,7 +56,8 @@ class Reporter:
                 ),
                 'reproduction_steps': self._get_reproduction(detection),
                 'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                'detection_method': self._get_detection_method(detection)
+                'detection_method': self._get_detection_method(detection),
+                'verification_status': self._get_verification_status(detection)
             }
             report.append(report_entry)
 
@@ -69,33 +71,26 @@ class Reporter:
         return report
 
     def _get_description(self, vuln_type):
-        """Return description for each vulnerability type"""
+        """Return an evidence-based description."""
+
         descriptions = {
-            'SQL Injection': (
-                'SQL Injection occurs when malicious SQL code is inserted '
-                'into an input field and executed by the database. This '
-                'allows attackers to read, modify, or delete database '
-                'contents and bypass authentication mechanisms.'
-            ),
-            'Cross-Site Scripting (XSS)': (
-                'XSS vulnerabilities allow attackers to inject malicious '
-                'scripts into web pages viewed by other users. This can '
-                'lead to session hijacking, credential theft, and '
-                'malicious redirects.'
-            ),
-            'Path Traversal': (
-                'Path Traversal allows attackers to access files and '
-                'directories outside the intended web root directory. '
-                'Attackers can read sensitive system files including '
-                'configuration files and password files.'
-            ),
-            'Command Injection': (
-                'Command Injection allows attackers to execute arbitrary '
-                'operating system commands on the server. This can lead '
-                'to complete system compromise and data theft.'
-            )
+            "SQL Injection":
+                "The submitted SQL payload caused the application to respond differently from its normal behaviour. No direct database errors or sensitive information were observed during automated testing. This finding should be treated as a potential SQL Injection vulnerability and manually verified.",
+
+            "Cross-Site Scripting (XSS)":
+                "The submitted XSS payload produced an abnormal application response. Although successful script execution was not confirmed, the behaviour suggests a potential Cross-Site Scripting vulnerability requiring manual verification.",
+
+            "Path Traversal":
+                "A path traversal payload caused an unusual application response. No sensitive files were disclosed during automated testing, but the endpoint should be manually verified for possible directory traversal weaknesses.",
+
+            "Command Injection":
+                "A command injection payload resulted in abnormal application behaviour. Automated testing did not confirm successful command execution; therefore, manual verification is recommended."
         }
-        return descriptions.get(vuln_type, 'Unknown vulnerability type detected.')
+
+        return descriptions.get(
+            vuln_type,
+            "Potential security weakness detected. Manual verification is recommended."
+        ) 
 
     def _get_impact(self, vuln_type):
         """Return impact statement for each vulnerability type"""
@@ -176,20 +171,75 @@ class Reporter:
             + (", ".join(detection['evidence']))
         ]
 
+    def _build_evidence_summary(self, detection):
+        """Build a clear, human-readable evidence summary."""
+
+        evidence = []
+
+        # HTTP response information
+        evidence.append(
+            f"HTTP Status Code: {detection['status_code']}"
+        )
+        evidence.append(
+            f"Response Time: {detection['response_time']:.3f} seconds"
+        )
+
+        # Database error indicators
+        if detection['error_indicators'] > 0:
+            evidence.append(
+                f"Database error indicators detected ({detection['error_indicators']})"
+            )
+        else:
+            evidence.append(
+                "No database error indicators detected."
+            )
+
+        # Sensitive data indicators
+        if detection['sensitive_data'] > 0:
+            evidence.append(
+                f"Sensitive data indicators detected ({detection['sensitive_data']})"
+            )
+        else:
+            evidence.append(
+                "No sensitive information disclosed."
+            )
+
+        # Machine learning confidence
+        evidence.append(
+            f"Machine Learning Confidence: {detection['confidence']}%"
+        )
+
+        # Existing evidence generated by classifier
+        evidence.extend(detection['evidence'])
+
+        return evidence
+
+
     def _get_detection_method(self, detection):
-        """Describe which models detected this vulnerability"""
-        methods = []
+        """Return the detection technique used."""
 
-        if detection['rf_detected']:
-            methods.append("Random Forest Classification")
+        if detection.get("rf_detected") and detection.get("iso_detected"):
+            return "Random Forest + Isolation Forest (Hybrid Machine Learning Analysis)"
 
-        if detection['iso_detected']:
-            methods.append("Isolation Forest Behavioral Analysis")
+        elif detection.get("rf_detected"):
+            return "Random Forest Classification"
 
-        if len(methods) == 2:
-            return "ML Ensemble (Random Forest + Isolation Forest)"
-
-        if methods:
-            return methods[0]
+        elif detection.get("iso_detected"):
+            return "Isolation Forest Behavioural Analysis (Machine Learning)"
 
         return "Rule-Based Detection"
+  
+    def _get_verification_status(self, detection):
+        """Determine whether the finding is Confirmed or Potential."""
+
+        evidence = " ".join(detection.get("evidence", [])).lower()
+
+        if (
+            "database error" in evidence
+            or "sensitive system data" in evidence
+            or detection.get("status_code") == 500
+        ):
+
+            return "Confirmed"
+          
+        return "Potential"
