@@ -46,7 +46,6 @@ class Reporter:
                 'evidence': self._build_evidence_summary(detection),
                 'description': self._get_description(
                     detection['vulnerability_type'],
-                    self._get_verification_status(detection)
                 ),
                 'impact': self._get_impact(
                     detection['vulnerability_type']
@@ -159,20 +158,32 @@ class Reporter:
         )
 
     def _get_reproduction(self, detection):
-        """Generate step-by-step reproduction instructions"""
+        """Generate manual verification steps."""
+
         return [
             f"1. Navigate to: {detection['url']}",
             f"2. Locate the input field: '{detection['input_field']}'",
             f"3. Enter the following payload: {detection['payload']}",
-            f"4. Submit the form and observe the response",
-            f"5. Expected: Server responds with status {detection['status_code']} "
-            f"in {detection['response_time']:.2f}s",
-            f"6. Vulnerability confirmed if: "
-            + (", ".join(detection['evidence']))
+            "4. Submit the form and observe the application's response.",
+            "",
+            "5. Manual Verification",
+            "   • Check whether database error messages are returned.",
+            "   • Check whether authentication is bypassed.",
+            "   • Check whether sensitive information is disclosed.",
+            "   • Check whether the application's behaviour changes unexpectedly.",
+            "",
+            "6. Automated Observation",
+            f"   • The scanner observed an HTTP {detection['status_code']} response in {detection['response_time']:.2f} seconds.",
+            f"   • {' '.join(detection['evidence'])}",
+            "",
+            "7. Conclusion",
+            f"   • This finding is currently classified as {detection['verification_status']}.",
+            "   • Manual penetration testing is recommended before confirming exploitation."
         ]
 
     def _build_evidence_summary(self, detection):
         """Build a clear, human-readable evidence summary."""
+
 
         evidence = []
 

@@ -210,27 +210,28 @@ class Classifier:
         }
         return mapping.get(feat['payload_type'], 'Unknown')
 
+
     def _calculate_severity(self, feat, confidence):
-        """Calculate CVSS-based severity rating"""
-        score = confidence * 10
+        """Calculate severity based on observed evidence rather than ML confidence."""
 
+        # Highest confidence evidence
         if feat['sensitive_count'] > 0:
-            score += 3
-        if feat['error_count'] > 2:
-            score += 2
-        if feat['response_time'] > 3.0:
-            score += 2
-        if feat['status_code'] == 500:
-            score += 1
+            return "Critical"
 
-        if score >= 9:
-            return 'Critical'
-        elif score >= 7:
-            return 'High'
-        elif score >= 4:
-            return 'Medium'
-        else:
-            return 'Low'
+        # Strong evidence
+        if feat['error_count'] > 0:
+            return "High"
+
+        # Possible time-based attack
+        if feat['response_time'] > 3.0:
+            return "High"
+
+        # Server crash caused by payload
+        if feat['status_code'] == 500:
+            return "High"
+
+        # Behavioural anomaly only
+        return "Medium"
 
     def _get_evidence(self, feat):
         """Generate human-readable evidence"""
