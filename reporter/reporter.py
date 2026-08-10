@@ -177,7 +177,7 @@ class Reporter:
             f"   • {' '.join(detection['evidence'])}",
             "",
             "7. Conclusion",
-            f"   • This finding is currently classified as {detection['verification_status']}.",
+              f"   • This finding is currently classified as {self._get_verification_status(detection)}.",
             "   • Manual penetration testing is recommended before confirming exploitation."
         ]
 
