@@ -241,16 +241,38 @@ class Reporter:
         return "Rule-Based Detection"
   
     def _get_verification_status(self, detection):
-        """Determine whether the finding is Confirmed or Potential."""
+        """Determine whether a finding is Confirmed or Potential."""
 
-        evidence = " ".join(detection.get("evidence", [])).lower()
+        evidence = " ".join(
+            detection.get("evidence", [])
+        ).lower()
 
-        if (
-            "database error" in evidence
-            or "sensitive system data" in evidence
-            or detection.get("status_code") == 500
-        ):
+        vuln_type = detection.get(
+            "vulnerability_type", ""
+        )
 
+        # Strong SQL injection evidence
+        if vuln_type == "SQL Injection":
+            sql_indicators = [
+                "sql syntax",
+                "mysql",
+                "mariadb",
+                "you have an error in your sql",
+                "sqlstate",
+                "syntax error"
+            ]
+
+            if any(
+                indicator in evidence
+                for indicator in sql_indicators
+            ):
+                return "Confirmed"
+
+        # Strong evidence of sensitive information
+        # actually being disclosed.
+        if detection.get("sensitive_data", 0) > 0:
             return "Confirmed"
-          
+
+        # Suspicious behaviour without sufficient
+        # evidence of actual exploitation.
         return "Potential"
