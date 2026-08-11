@@ -47,7 +47,7 @@ class Analyzer:
 
         # XSS reflection indicators
         self.xss_keywords = [
-            '<script>', 'alert(', 'onerror=', 'onload=',
+             'alert(', 'onerror=', 'onload=',
             'javascript:', '<iframe', '<svg', 'onfocus='
         ]
 
