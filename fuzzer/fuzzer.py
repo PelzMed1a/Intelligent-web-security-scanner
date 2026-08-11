@@ -12,22 +12,82 @@ class Fuzzer:
         self._login()
         self.payloads = self._load_payloads()
 
+    
     def _login(self):
         """Re-authenticate session for fuzzing"""
         try:
-            login_url = urljoin(self.base_url, '/login.php')
-            response = self.session.get(login_url, timeout=10)
+            login_url = urljoin(
+                self.base_url.rstrip('/') + '/',
+                'login.php'
+            )
+
+            print(f"[*] Fuzzer login URL: {login_url}")
+
+            response = self.session.get(
+                login_url,
+                timeout=10,
+                allow_redirects=True
+            )
+
+            print(
+                f"[*] Login page status: {response.status_code} | "
+                f"URL: {response.url}"
+            )
+
             from bs4 import BeautifulSoup
-            soup = BeautifulSoup(response.text, 'html.parser')
-            token_field = soup.find('input', {'name': 'user_token'})
-            token = token_field['value'] if token_field else ''
+
+            soup = BeautifulSoup(
+                response.text,
+                'html.parser'
+            )
+
+            token_field = soup.find(
+                'input',
+                {'name': 'user_token'}
+            )
+
+            token = (
+                token_field.get('value', '')
+                if token_field
+                else ''
+            )
+
             login_data = {
                 'username': 'admin',
                 'password': 'password',
-                'Login': 'Login',
-                'user_token': token
+                'Login': 'Login'
             }
-            self.session.post(login_url, data=login_data, timeout=10)
+
+            if token:
+                login_data['user_token'] = token
+
+            login_response = self.session.post(
+                login_url,
+                data=login_data,
+                timeout=10,
+                allow_redirects=True
+            )
+
+            print(
+                f"[*] Login response: "
+                f"{login_response.status_code} | "
+                f"URL: {login_response.url}"
+            )
+
+            print(
+                f"[*] Session cookies: "
+                f"{dict(self.session.cookies)}"
+            )
+
+            if 'login.php' in login_response.url:
+                print(
+                    "[!] WARNING: Fuzzer authentication failed."
+                )
+            else:
+                print(
+                    "[+] Fuzzer authentication appears successful."
+                )
+
         except Exception as e:
             print(f"[!] Fuzzer login failed: {e}")
 
@@ -60,14 +120,14 @@ class Fuzzer:
             ],
             'path_traversal': [
                 "../../../etc/passwd",
-                "..\\..\\..\\windows\\system32\\drivers\\etc\\hosts",
+                r"..\..\..\windows\system32\drivers\etc\hosts",
                 "....//....//....//etc/passwd",
                 "%2e%2e%2f%2e%2e%2f%2e%2e%2fetc%2fpasswd",
                 "..%252f..%252f..%252fetc%252fpasswd",
                 "/etc/passwd",
                 "../../etc/shadow",
                 "../etc/passwd%00",
-                "....\/....\/etc/passwd",
+                "....//....//etc/passwd",
                 "%2F%2F%2Fetc%2Fpasswd"
             ],
             'cmd_injection': [
@@ -134,11 +194,18 @@ class Fuzzer:
         try:
             # Build form data - fill all fields
             form_data = {}
+            
             for field in endpoint['inputs']:
                 if field['name'] == input_field['name']:
                     form_data[field['name']] = payload
                 else:
                     form_data[field['name']] = field.get('value', 'test')
+            print(
+                f"[FUZZ-INPUT] url={endpoint['url']} "
+                f"field={input_field.get('name')} "
+                f"method={endpoint['method']} "
+                f"data={form_data}"
+            )
 
             start_time = time.time()
 
@@ -168,7 +235,7 @@ class Fuzzer:
                 'status_code': response.status_code,
                 'response_time': response_time,
                 'content_length': len(response.content),
-                'response_text': response.text[:2000],
+                'response_text': response.text,
                 'headers': dict(response.headers)
             }
 

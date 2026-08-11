@@ -3,14 +3,40 @@ import numpy as np
 
 class Analyzer:
     def __init__(self):
-        # Error keywords that indicate something went wrong server-side
+        
+        # SQL/database-specific error signatures.
+        # These are intentionally specific so normal words such as
+        # "error", "warning", "invalid", or "exception" do not
+        # produce false SQL Injection evidence.
         self.error_keywords = [
-            'sql', 'mysql', 'syntax', 'error', 'warning', 'fatal',
-            'exception', 'stack trace', 'ora-', 'pg::', 'sqlite',
-            'undefined', 'null', 'invalid query', 'database error',
-            'you have an error in your sql', 'unclosed quotation',
-            'quoted string not properly terminated'
+            'you have an error in your sql syntax',
+            'you have an error in your sql',
+            'mysql syntax',
+            'mariadb',
+            'mysqli_sql_exception',
+            'mysqli error',
+            'mysqli_query',
+            'pdoexception',
+            'pdo error',
+            'sqlstate',
+            'ora-',
+            'oracle error',
+            'postgresql error',
+            'postgres error',
+            'pg::',
+            'sqlite error',
+            'sqlite3 error',
+            'sqlite_exception',
+            'unclosed quotation mark',
+            'quoted string not properly terminated',
+            'invalid sql statement',
+            'invalid query',
+            'database error',
+            'sql syntax error',
+            'syntax error in sql',
+            'sql command not properly ended'
         ]
+
 
         # Sensitive keywords that should never appear in responses
         self.sensitive_keywords = [
@@ -133,6 +159,7 @@ class Analyzer:
 
             return {
                 'features': feature_vector,
+                'baseline': baseline,
                 'url': resp.get('url', ''),
                 'payload': resp.get('payload', ''),
                 'payload_type': payload_type,

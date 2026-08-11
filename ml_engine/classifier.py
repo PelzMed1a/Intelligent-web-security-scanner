@@ -151,65 +151,460 @@ class Classifier:
         print("[*] Models trained successfully")
 
     def classify(self, feature_list, responses):
-        """Classify each response as normal or vulnerable"""
+        """Classify responses using ML and behavioral evidence."""
+
         if not self.is_trained:
             self._train()
 
         detections = []
+        print(f"[DEBUG] FEATURE COUNT: {len(feature_list)}")
 
         if not feature_list:
             print("[!] No features to classify")
             return detections
 
-        # Extract feature vectors
         X = np.array([f['features'] for f in feature_list])
         X_scaled = self.scaler.transform(X)
 
-        # Random Forest predictions (0=normal, 1=vulnerable)
         rf_predictions = self.rf_model.predict(X_scaled)
         rf_probabilities = self.rf_model.predict_proba(X_scaled)
-        # Isolation Forest predictions (-1=anomaly, 1=normal)
         iso_predictions = self.iso_model.predict(X_scaled)
 
-        # Combine both models - flag if EITHER detects anomaly
         for i, (feat, rf_pred, iso_pred) in enumerate(
             zip(feature_list, rf_predictions, iso_predictions)
         ):
-            rf_confidence = rf_probabilities[i][1] if rf_pred == 1 else rf_probabilities[i][0]
-            is_vulnerable = rf_pred == 1 or iso_pred == -1
+            print(
+                f"[CHECK] {i} | "
+                f"type={feat.get('payload_type')} | "
+                f"payload={feat.get('payload')!r} | "
+                f"status={feat.get('status_code')} | "
+                f"time={feat.get('response_time')} | "
+                f"errors={feat.get('error_count')} | "
+                f"sensitive={feat.get('sensitive_count')} | "
+                f"features={feat.get('features')}"
+            )
 
-            if is_vulnerable and feat['payload_type'] != 'baseline':
-                severity = self._calculate_severity(feat, rf_confidence)
-                detection = {
-                    'url': feat['url'],
-                    'input_field': feat['input_field'],
-                    'payload': feat['payload'],
-                    'vulnerability_type': self._get_vuln_type(feat),
-                    'severity': severity,
-                    'confidence': round(rf_confidence * 100, 2),
-                    'rf_detected': bool(rf_pred == 1),
-                    'iso_detected': bool(iso_pred == -1),
-                    'response_time': feat['response_time'],
-                    'status_code': feat['status_code'],
-                    'error_indicators': feat['error_count'],
-                    'sensitive_data': feat['sensitive_count'],
-                    'evidence': self._get_evidence(feat)
-                }
-                detections.append(detection)
+            payload_type = feat.get('payload_type', 'baseline')
 
-        print(f"[*] Classification complete: {len(detections)} vulnerabilities detected")
+            if payload_type == 'baseline':
+                continue
+
+            response_text = feat.get('response_text', '').lower()
+            payload = feat.get('payload', '').lower()
+
+            rf_detected = rf_pred == 1
+            iso_detected = iso_pred == -1
+
+            if rf_pred == 1:
+                rf_confidence = float(rf_probabilities[i][1])
+            else:
+                rf_confidence = float(rf_probabilities[i][0])
+
+            # -----------------------------
+            # BEHAVIORAL EVIDENCE
+            # -----------------------------
+
+            error_evidence = feat.get('error_count', 0) > 0
+            sensitive_evidence = feat.get('sensitive_count', 0) > 0
+
+            xss_evidence = (
+                len(feat.get('features', [])) > 9
+                and feat['features'][9] > 0
+            )
+
+            server_error = feat.get('status_code', 0) >= 500
+            timing_evidence = feat.get('response_time', 0) > 3.0
+
+            # -----------------------------
+            # BASELINE COMPARISON
+            # -----------------------------
+
+            baseline = {}
+
+            if responses and i < len(responses):
+                baseline = responses[i].get('baseline', {}) or {}
+
+            baseline_length_changed = False
+
+            if baseline:
+                baseline_length = baseline.get(
+                    'content_length',
+                    feat['features'][4]
+                )
+
+                current_length = feat['features'][4]
+
+                if baseline_length > 0:
+                    ratio = current_length / baseline_length
+                    length_difference = abs(
+                        current_length - baseline_length
+                    )
+
+                    # Detect meaningful response-size changes.
+                    if (
+                        ratio > 1.03
+                        or ratio < 0.97
+                        or length_difference >= 100
+                    ):
+                        baseline_length_changed = True
+
+            # SQLi-specific behavioural evidence
+            sqli_behavior = False
+
+            if payload_type == 'sqli':
+                if baseline_length_changed:
+                    sqli_behavior = True
+
+            # -----------------------------
+            # XSS REFLECTION
+            # -----------------------------
+
+            xss_direct = False
+
+            if payload_type == 'xss':
+                xss_markers = [
+                    '<script>',
+                    '<img',
+                    'onerror=',
+                    'onload=',
+                    '<svg',
+                    'onfocus=',
+                    'javascript:'
+                ]
+
+                for marker in xss_markers:
+                    if (
+                        marker in payload
+                        and marker in response_text
+                    ):
+                        xss_direct = True
+                        break
+
+            # -----------------------------
+            # SQL INJECTION
+            # -----------------------------
+
+            sqli_evidence = False
+
+            if payload_type == 'sqli':
+                sql_markers = [
+                    'sql syntax',
+                    'mysql',
+                    'mysqli',
+                    'pdoexception',
+                    'sqlstate',
+                    'postgresql',
+                    'sqlite',
+                    'ora-',
+                    'unclosed quotation',
+                    'quoted string',
+                    'database error'
+                ]
+
+                if any(
+                    marker in response_text
+                    for marker in sql_markers
+                ):
+                    sqli_evidence = True
+
+                if error_evidence:
+                    sqli_evidence = True
+
+                if server_error:
+                    sqli_evidence = True
+
+                if timing_evidence:
+                    sqli_evidence = True
+
+            # -----------------------------
+            # PATH TRAVERSAL
+            # -----------------------------
+
+            path_evidence = False
+
+            if payload_type == 'path_traversal':
+
+                path_markers = [
+                    'root:x:',
+                    '/bin/bash',
+                    '/etc/passwd',
+                    'uid=',
+                    'gid=',
+                    'daemon:x:',
+                    'www-data:x:'
+                ]
+
+                if any(marker in response_text for marker in path_markers):
+                    path_evidence = True
+
+            # -----------------------------
+            # COMMAND INJECTION
+            # -----------------------------
+
+            command_evidence = False
+
+            if payload_type == 'cmd_injection':
+                command_markers = [
+                    'uid=',
+                    'gid=',
+                    'root:',
+                    'www-data',
+                    'total ',
+                    'directory of',
+                    '/bin/',
+                    'windows\\system32'
+                ]
+
+                if any(
+                    marker in response_text
+                    for marker in command_markers
+                ):
+                    command_evidence = True
+
+                if sensitive_evidence:
+                    command_evidence = True
+
+                if server_error:
+                    command_evidence = True
+
+                if timing_evidence:
+                    command_evidence = True
+
+            # -----------------------------
+            # ML DETECTION
+            # -----------------------------
+
+           
+
+            ml_detected = rf_detected or iso_detected
+
+
+            # -----------------------------
+            # MAJOR BEHAVIOR CHANGE
+            # -----------------------------
+
+            major_behavior_change = (
+                server_error
+                or timing_evidence
+                or sensitive_evidence
+                or xss_evidence
+                or baseline_length_changed
+                or error_evidence
+            )
+
+
+
+            # -----------------------------
+            # DIRECT EVIDENCE
+            # -----------------------------
+
+            direct_evidence = (
+                sqli_evidence
+                or xss_direct
+                or path_evidence
+                or command_evidence
+            )
+
+ 
+
+            # -----------------------------
+            # DETECTION SCORE
+            # -----------------------------
+
+            evidence_score = 0
+
+            if rf_detected:
+                evidence_score += 1
+
+            if iso_detected:
+                evidence_score += 1
+
+            if error_evidence:
+                evidence_score += 3
+
+            if sensitive_evidence:
+                evidence_score += 4
+
+            if xss_direct:
+                evidence_score += 4
+
+            if xss_evidence:
+                evidence_score += 2
+
+            if server_error:
+                evidence_score += 2
+
+            if timing_evidence:
+                evidence_score += 2
+
+            if baseline_length_changed:
+                evidence_score += 1
+
+            if sqli_evidence:
+                evidence_score += 4
+
+            if path_evidence:
+                evidence_score += 4
+
+            if command_evidence:
+                evidence_score += 4
+
+            # -----------------------------
+            # CONFIRMATION
+            # -----------------------------
+
+            confirmed = False
+
+            # Confirm when direct vulnerability evidence exists
+            if direct_evidence:
+                confirmed = True
+
+            # For SQL injection, a meaningful response-size change
+            # from the baseline is evidence on DVWA low security.
+            if payload_type == 'sqli' and baseline_length_changed:
+                confirmed = True
+
+            # ML anomaly plus behavioral change
+            if ml_detected and major_behavior_change:
+                confirmed = True
+
+            # -----------------------------
+            # DEBUG
+            # -----------------------------
+
+            print(
+                f"[DEBUG] {payload_type} | "
+                f"RF={rf_detected} | "
+                f"ISO={iso_detected} | "
+                f"error={error_evidence} | "
+                f"sensitive={sensitive_evidence} | "
+                f"xss={xss_evidence} | "
+                f"500={server_error} | "
+                f"timing={timing_evidence} | "
+                f"length_change={baseline_length_changed} | "
+                f"score={evidence_score} | "
+                f"confirmed={confirmed}"
+            )
+
+            if not confirmed:
+                continue
+
+            # -----------------------------
+            # VULNERABILITY TYPE
+            # -----------------------------
+
+            vuln_type = self._get_vuln_type(feat)
+
+            # -----------------------------
+            # SEVERITY
+            # -----------------------------
+
+            severity = self._calculate_severity(
+                feat,
+                rf_confidence
+            )
+
+            # -----------------------------
+            # EVIDENCE
+            # -----------------------------
+
+            evidence = self._get_evidence(feat)
+
+            if xss_direct:
+                evidence.append(
+                    "XSS payload was reflected in the HTTP response."
+                )
+
+            if sqli_evidence:
+                evidence.append(
+                    "SQL injection response behaviour detected."
+                )
+
+            if path_evidence:
+                evidence.append(
+                    "Path traversal indicators detected."
+                )
+
+            if command_evidence:
+                evidence.append(
+                    "Command injection indicators detected."
+                )
+
+            if sensitive_evidence:
+                evidence.append(
+                    "Sensitive system information was detected."
+                )
+
+            if server_error:
+                evidence.append(
+                    "Server returned an HTTP 5xx response."
+                )
+
+            if timing_evidence:
+                evidence.append(
+                    "Response time exceeded the configured threshold."
+                )
+
+            if baseline_length_changed:
+                evidence.append(
+                    "Response length changed significantly from baseline."
+                )
+
+            if iso_detected:
+                evidence.append(
+                    "Isolation Forest identified anomalous response behaviour."
+                )
+
+            if rf_detected:
+                evidence.append(
+                    "Random Forest classified the response as suspicious."
+                )
+
+            evidence = list(dict.fromkeys(evidence))
+
+            # -----------------------------
+            # DETECTION OBJECT
+            # -----------------------------
+
+            detection = {
+                'url': feat.get('url', ''),
+                'input_field': feat.get('input_field', ''),
+                'payload': feat.get('payload', ''),
+                'vulnerability_type': vuln_type,
+                'severity': severity,
+                'confidence': round(
+                    rf_confidence * 100,
+                    2
+                ),
+                'rf_detected': bool(rf_detected),
+                'iso_detected': bool(iso_detected),
+                'response_time': feat.get(
+                    'response_time',
+                    0
+                ),
+                'status_code': feat.get(
+                    'status_code',
+                    0
+                ),
+                'error_indicators': feat.get(
+                    'error_count',
+                    0
+                ),
+                'sensitive_data': feat.get(
+                    'sensitive_count',
+                    0
+                ),
+                'evidence': evidence
+            }
+
+            detections.append(detection)
+
+        print(
+            f"[*] Classification complete: "
+            f"{len(detections)} vulnerabilities detected"
+        )
+
         return detections
-
-    def _get_vuln_type(self, feat):
-        """Map payload type to vulnerability name"""
-        mapping = {
-            'sqli': 'SQL Injection',
-            'xss': 'Cross-Site Scripting (XSS)',
-            'path_traversal': 'Path Traversal',
-            'cmd_injection': 'Command Injection'
-        }
-        return mapping.get(feat['payload_type'], 'Unknown')
-
 
     def _calculate_severity(self, feat, confidence):
         """Calculate severity based on observed evidence rather than ML confidence."""
@@ -257,3 +652,17 @@ class Classifier:
             )
 
         return evidence
+
+    def _get_vuln_type(self, feat):
+        """Map payload type to vulnerability name."""
+        mapping = {
+            'sqli': 'SQL Injection',
+            'xss': 'Cross-Site Scripting (XSS)',
+            'path_traversal': 'Path Traversal',
+            'cmd_injection': 'Command Injection'
+        }
+
+        return mapping.get(
+            feat.get('payload_type', 'baseline'),
+            'Unknown'
+        )

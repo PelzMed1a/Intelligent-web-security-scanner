@@ -17,6 +17,15 @@ class Reporter:
         seen = set()
 
         for i, detection in enumerate(detections):
+
+            print(
+                f"[REPORT-CHECK] {i} | "
+                f"type={detection.get('vulnerability_type')} | "
+                f"url={detection.get('url')} | "
+                f"field={detection.get('input_field')} | "
+                f"payload={detection.get('payload')}"
+            )
+
             # Deduplicate similar findings
             dedup_key = (
                 detection['url'],
