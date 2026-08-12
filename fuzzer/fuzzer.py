@@ -67,7 +67,7 @@ class Fuzzer:
                 "/etc/passwd",
                 "../../etc/shadow",
                 "../etc/passwd%00",
-                "....\/....\/etc/passwd",
+                "....//....//etc/passwd",
                 "%2F%2F%2Fetc%2Fpasswd"
             ],
             'cmd_injection': [
