@@ -99,13 +99,15 @@ class Fuzzer:
         }
 
     def _get_context(self, input_field):
-        """Determine appropriate payload type based on input context"""
+        """Determine appropriate payload type based on input context.
+        NOTE: 'name' is intentionally NOT an sqli keyword. DVWA's
+        reflected-XSS field is literally called 'name', and it was being
+        misrouted to SQL-injection payloads, so XSS was never tested there."""
         name = input_field.get('name', '').lower()
         input_type = input_field.get('type', 'text').lower()
-
-        if any(k in name for k in ['id', 'user', 'name', 'pass', 'search', 'query', 'q']):
+        if any(k in name for k in ['id', 'user', 'pass', 'search', 'query', 'q']):
             return 'sqli'
-        elif any(k in name for k in ['comment', 'message', 'text', 'input', 'content']):
+        elif any(k in name for k in ['comment', 'message', 'text', 'input', 'content', 'name']):
             return 'xss'
         elif any(k in name for k in ['file', 'path', 'dir', 'folder', 'page', 'include']):
             return 'path_traversal'
@@ -126,12 +128,10 @@ class Fuzzer:
                 context = self._get_context(input_field)
                 payloads = self.payloads[context]
 
-                # First get baseline response with normal input
                 baseline = self._send_request(
                     endpoint, input_field, 'normal_input', 'baseline'
                 )
 
-                # Then fuzz with malicious payloads
                 for payload in payloads:
                     response_data = self._send_request(
                         endpoint, input_field, payload, context
@@ -146,8 +146,16 @@ class Fuzzer:
     def _send_request(self, endpoint, input_field, payload, payload_type):
         """Send a single request and record the response"""
         try:
-            # Build form data - fill all fields
             form_data = {}
+
+            # Always replay the form's submit button and hidden fields
+            # (e.g. Submit=Submit, CSRF user_token) unmodified. Without
+            # this, DVWA-style pages that gate on isset($_GET['Submit'])
+            # never run the vulnerable code path at all -- every payload
+            # just returned the empty form, unchanged.
+            for ef in endpoint.get('extra_fields', []):
+                form_data[ef['name']] = ef['value']
+
             for field in endpoint['inputs']:
                 if field['name'] == input_field['name']:
                     form_data[field['name']] = payload
@@ -182,7 +190,12 @@ class Fuzzer:
                 'status_code': response.status_code,
                 'response_time': response_time,
                 'content_length': len(response.content),
-                'response_text': response.text[:2000],
+                # Do NOT truncate here. DVWA's real pages have a long
+                # navigation menu before the vulnerable content, so a
+                # fixed cutoff (the old code used [:2000]) could slice
+                # off reflected XSS or command output before the scanner
+                # ever sees it.
+                'response_text': response.text,
                 'headers': dict(response.headers)
             }
 

@@ -6,7 +6,6 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report, confusion_matrix
 import warnings
 warnings.filterwarnings('ignore')
-
 class Classifier:
     def __init__(self):
         self.rf_model = RandomForestClassifier(
@@ -22,7 +21,6 @@ class Classifier:
         )
         self.scaler = StandardScaler()
         self.is_trained = False
-
     def _generate_training_data(self):
         """
         Generate synthetic training data based on known
@@ -32,174 +30,296 @@ class Classifier:
         np.random.seed(42)
         n_normal = 300
         n_vuln = 150
-
-        # ── Normal responses ─────────────────────────────────────────
         normal_data = np.column_stack([
-            np.random.uniform(0.001, 0.05, n_normal),  # F1: response time (fast, local)
-            np.random.uniform(0.0, 0.01, n_normal),     # F2: time deviation
-            np.full(n_normal, 200),                     # F3: status code
-            np.zeros(n_normal),                         # F4: status changed
-            np.random.randint(1000, 5000, n_normal),    # F5: content length
-            np.random.uniform(0, 50, n_normal),         # F6: length deviation
-            np.random.uniform(0.95, 1.05, n_normal),   # F7: length ratio
-            np.zeros(n_normal),                         # F8: error keywords
-            np.zeros(n_normal),                         # F9: sensitive data
-            np.zeros(n_normal),                         # F10: xss reflected
-            np.zeros(n_normal),                         # F11: redirect
-            np.zeros(n_normal),                         # F12: server error
-            np.zeros(n_normal),                         # F13: content type change
-            np.random.randint(0, 5, n_normal),          # F14: payload type
-            np.zeros(n_normal)                          # F15: timeout
+            np.random.uniform(0.001, 0.05, n_normal),
+            np.random.uniform(0.0, 0.01, n_normal),
+            np.full(n_normal, 200),
+            np.zeros(n_normal),
+            np.random.randint(1000, 5000, n_normal),
+            np.random.uniform(0, 50, n_normal),
+            np.random.uniform(0.95, 1.05, n_normal),
+            np.zeros(n_normal),
+            np.zeros(n_normal),
+            np.zeros(n_normal),
+            np.zeros(n_normal),
+            np.zeros(n_normal),
+            np.zeros(n_normal),
+            np.random.randint(0, 5, n_normal),
+            np.zeros(n_normal)
         ])
         normal_labels = np.zeros(n_normal)
-
-        # ── SQL Injection responses (local timing) ─────────────────────
         sqli_data = np.column_stack([
-            np.random.uniform(0.003, 0.08, n_vuln//3), # F1: still fast locally, but distinguishable
-            np.random.uniform(0.002, 0.05, n_vuln//3), # F2: slightly higher deviation
-            np.random.choice([200, 500], n_vuln//3),    # F3: status
-            np.random.randint(0, 2, n_vuln//3),         # F4: status change
-            np.random.randint(500, 8000, n_vuln//3),    # F5: content length
-            np.random.uniform(200, 3000, n_vuln//3),    # F6: high deviation
-            np.random.uniform(0.5, 2.5, n_vuln//3),    # F7: high ratio
-            np.random.randint(1, 5, n_vuln//3),         # F8: error keywords
-            np.zeros(n_vuln//3),                        # F9: sensitive data
-            np.zeros(n_vuln//3),                        # F10: xss
-            np.zeros(n_vuln//3),                        # F11: redirect
-            np.random.randint(0, 2, n_vuln//3),         # F12: server error
-            np.zeros(n_vuln//3),                        # F13: content type
-            np.ones(n_vuln//3),                         # F14: sqli payload
-            np.zeros(n_vuln//3)                         # F15: timeout
+            np.random.uniform(0.003, 0.08, n_vuln//3),
+            np.random.uniform(0.002, 0.05, n_vuln//3),
+            np.random.choice([200, 500], n_vuln//3),
+            np.random.randint(0, 2, n_vuln//3),
+            np.random.randint(500, 8000, n_vuln//3),
+            np.random.uniform(200, 3000, n_vuln//3),
+            np.random.uniform(0.5, 2.5, n_vuln//3),
+            np.random.randint(1, 5, n_vuln//3),
+            np.zeros(n_vuln//3),
+            np.zeros(n_vuln//3),
+            np.zeros(n_vuln//3),
+            np.random.randint(0, 2, n_vuln//3),
+            np.zeros(n_vuln//3),
+            np.ones(n_vuln//3),
+            np.zeros(n_vuln//3)
         ])
         sqli_labels = np.ones(n_vuln//3)
-
-        # ── XSS responses ─────────────────────────────────────────────
         xss_data = np.column_stack([
-            np.random.uniform(0.001, 0.04, n_vuln//3), # F1: normal local time
-            np.random.uniform(0.0, 0.01, n_vuln//3),   # F2: low deviation
-            np.full(n_vuln//3, 200),                    # F3: 200 OK
-            np.zeros(n_vuln//3),                        # F4: no status change
-            np.random.randint(2000, 8000, n_vuln//3),   # F5: larger content
-            np.random.uniform(500, 2000, n_vuln//3),    # F6: length change
-            np.random.uniform(1.2, 2.5, n_vuln//3),    # F7: higher ratio
-            np.zeros(n_vuln//3),                        # F8: no db errors
-            np.zeros(n_vuln//3),                        # F9: no sensitive
-            np.random.randint(1, 4, n_vuln//3),         # F10: xss reflected
-            np.zeros(n_vuln//3),                        # F11: no redirect
-            np.zeros(n_vuln//3),                        # F12: no server error
-            np.zeros(n_vuln//3),                        # F13: content type
-            np.full(n_vuln//3, 2),                      # F14: xss payload
-            np.zeros(n_vuln//3)                         # F15: no timeout
+            np.random.uniform(0.001, 0.04, n_vuln//3),
+            np.random.uniform(0.0, 0.01, n_vuln//3),
+            np.full(n_vuln//3, 200),
+            np.zeros(n_vuln//3),
+            np.random.randint(2000, 8000, n_vuln//3),
+            np.random.uniform(500, 2000, n_vuln//3),
+            np.random.uniform(1.2, 2.5, n_vuln//3),
+            np.zeros(n_vuln//3),
+            np.zeros(n_vuln//3),
+            np.random.randint(1, 4, n_vuln//3),
+            np.zeros(n_vuln//3),
+            np.zeros(n_vuln//3),
+            np.zeros(n_vuln//3),
+            np.full(n_vuln//3, 2),
+            np.zeros(n_vuln//3)
         ])
         xss_labels = np.ones(n_vuln//3)
-
-        # ── Path Traversal responses ──────────────────────────────────
         path_data = np.column_stack([
-            np.random.uniform(0.001, 0.05, n_vuln//3), # F1: response time
-            np.random.uniform(0.0, 0.02, n_vuln//3),   # F2: deviation
-            np.random.choice([200, 403], n_vuln//3),    # F3: status
-            np.random.randint(0, 2, n_vuln//3),         # F4: status change
-            np.random.randint(500, 10000, n_vuln//3),   # F5: content length
-            np.random.uniform(100, 5000, n_vuln//3),    # F6: deviation
-            np.random.uniform(0.8, 3.0, n_vuln//3),    # F7: ratio
-            np.zeros(n_vuln//3),                        # F8: no db errors
-            np.random.randint(0, 3, n_vuln//3),         # F9: sensitive data
-            np.zeros(n_vuln//3),                        # F10: no xss
-            np.zeros(n_vuln//3),                        # F11: no redirect
-            np.zeros(n_vuln//3),                        # F12: no server error
-            np.random.randint(0, 2, n_vuln//3),         # F13: content change
-            np.full(n_vuln//3, 3),                      # F14: path payload
-            np.zeros(n_vuln//3)                         # F15: no timeout
+            np.random.uniform(0.001, 0.05, n_vuln//3),
+            np.random.uniform(0.0, 0.02, n_vuln//3),
+            np.random.choice([200, 403], n_vuln//3),
+            np.random.randint(0, 2, n_vuln//3),
+            np.random.randint(500, 10000, n_vuln//3),
+            np.random.uniform(100, 5000, n_vuln//3),
+            np.random.uniform(0.8, 3.0, n_vuln//3),
+            np.zeros(n_vuln//3),
+            np.random.randint(0, 3, n_vuln//3),
+            np.zeros(n_vuln//3),
+            np.zeros(n_vuln//3),
+            np.zeros(n_vuln//3),
+            np.random.randint(0, 2, n_vuln//3),
+            np.full(n_vuln//3, 3),
+            np.zeros(n_vuln//3)
         ])
         path_labels = np.ones(n_vuln//3)
-
-        # ── Combine all data ──────────────────────────────────────────
         X = np.vstack([normal_data, sqli_data, xss_data, path_data])
         y = np.concatenate([
             normal_labels, sqli_labels, xss_labels, path_labels
         ])
-
         return X, y
-
     def _train(self):
         """Train both ML models on generated training data"""
         print("[*] Training ML models...")
         X, y = self._generate_training_data()
-
-        # Scale features
         X_scaled = self.scaler.fit_transform(X)
-
-        # Split for evaluation
         X_train, X_test, y_train, y_test = train_test_split(
             X_scaled, y, test_size=0.2, random_state=42
         )
-
-        # Train Random Forest
         self.rf_model.fit(X_train, y_train)
-
-        # Train Isolation Forest on normal data only
         normal_indices = y_train == 0
         self.iso_model.fit(X_train[normal_indices])
-
-        # Evaluate
         y_pred = self.rf_model.predict(X_test)
         print("\n[*] Random Forest Performance:")
         print(classification_report(y_test, y_pred,
             target_names=['Normal', 'Vulnerability']))
-
         self.is_trained = True
         print("[*] Models trained successfully")
-
     def classify(self, feature_list, responses):
-        """Classify each response as normal or vulnerable"""
+        """Classify responses using ML plus behavioral and technical evidence."""
         if not self.is_trained:
             self._train()
-
         detections = []
-
         if not feature_list:
             print("[!] No features to classify")
             return detections
-
-        # Extract feature vectors
         X = np.array([f['features'] for f in feature_list])
         X_scaled = self.scaler.transform(X)
-
-        # Random Forest predictions (0=normal, 1=vulnerable)
         rf_predictions = self.rf_model.predict(X_scaled)
         rf_probabilities = self.rf_model.predict_proba(X_scaled)
-        # Isolation Forest predictions (-1=anomaly, 1=normal)
         iso_predictions = self.iso_model.predict(X_scaled)
-
-        # Combine both models - flag if EITHER detects anomaly
         for i, (feat, rf_pred, iso_pred) in enumerate(
             zip(feature_list, rf_predictions, iso_predictions)
         ):
-            rf_confidence = rf_probabilities[i][1] if rf_pred == 1 else rf_probabilities[i][0]
-            is_vulnerable = rf_pred == 1 or iso_pred == -1
-
-            if is_vulnerable and feat['payload_type'] != 'baseline':
-                severity = self._calculate_severity(feat, rf_confidence)
-                detection = {
-                    'url': feat['url'],
-                    'input_field': feat['input_field'],
-                    'payload': feat['payload'],
-                    'vulnerability_type': self._get_vuln_type(feat),
-                    'severity': severity,
-                    'confidence': round(rf_confidence * 100, 2),
-                    'rf_detected': bool(rf_pred == 1),
-                    'iso_detected': bool(iso_pred == -1),
-                    'response_time': feat['response_time'],
-                    'status_code': feat['status_code'],
-                    'error_indicators': feat['error_count'],
-                    'sensitive_data': feat['sensitive_count'],
-                    'evidence': self._get_evidence(feat)
-                }
-                detections.append(detection)
-
-        print(f"[*] Classification complete: {len(detections)} vulnerabilities detected")
+            payload_type = feat.get('payload_type', 'baseline')
+            if payload_type == 'baseline':
+                continue
+            rf_detected = bool(rf_pred == 1)
+            iso_detected = bool(iso_pred == -1)
+            rf_confidence = float(rf_probabilities[i][1])
+            error_evidence = feat.get('error_count', 0) > 0
+            sensitive_evidence = feat.get('sensitive_count', 0) > 0
+            server_error = feat.get('status_code', 0) >= 500
+            timeout_evidence = feat.get('timeout', 0) == 1
+            baseline = feat.get('baseline', {}) or {}
+            baseline_time = baseline.get(
+                'response_time',
+                feat.get('response_time', 0)
+            )
+            response_time = feat.get('response_time', 0)
+            time_anomaly = (
+                response_time >= 3.0
+                and response_time > baseline_time + 2.0
+            )
+            baseline_length = baseline.get(
+                'content_length',
+                feat.get('content_length', 0)
+            )
+            content_length = feat.get('content_length', 0)
+            # A reflected payload changes the response size by roughly its
+            # own length. Only a change MUCH larger than the payload (for
+            # example extra database rows being returned) is treated as a
+            # real anomaly, so simple input reflection is no longer mistaken
+            # for a boolean SQL injection.
+            content_anomaly = (
+                baseline_length > 0
+                and abs(content_length - baseline_length)
+                > (len(feat.get('payload', '')) + 150)
+            )
+            status_changed = feat.get('status_changed', 0) == 1
+            response_text = feat.get('response_text', '').lower()
+            payload = feat.get('payload', '').lower()
+            payload_reflected = (
+                bool(payload)
+                and len(payload) >= 3
+                and payload in response_text
+            )
+            # Unescaped reflection is a real XSS signal, but ONLY for XSS
+            # payloads and ONLY when the full payload came back verbatim.
+            # (The old feat['xss_reflected'] counted substrings such as
+            # "alert(" that survive HTML-escaping, which flagged safe pages.)
+            xss_reflection = (
+                payload_type == 'xss'
+                and len(payload) >= 3
+                and payload in response_text
+            )
+            # Machine-learning votes (rf/iso) and a bare status change are
+            # ADVISORY only and are deliberately NOT in the evidence below.
+            # The ML models are trained on synthetic data and flag almost
+            # every real response as anomalous, so on their own they must
+            # not confirm a finding.
+            #
+            # CONFIRMED tier: evidence that is very hard to produce by
+            # accident -- a genuine SQL error, real sensitive data
+            # disclosure, a server crash, or the payload coming back
+            # completely unescaped.
+            confirmed_evidence = (
+                error_evidence
+                or sensitive_evidence
+                or server_error
+                or xss_reflection
+            )
+            # POTENTIAL tier: real, observable, but softer signals that
+            # still deserve a human's attention -- a timing spike, a
+            # large size change, or a timeout, with none of the harder
+            # evidence above.
+            potential_evidence = (
+                timeout_evidence
+                or time_anomaly
+                or content_anomaly
+            )
+            strong_evidence = confirmed_evidence or potential_evidence
+            technical_evidence = strong_evidence
+            behavioral_evidence = (
+                content_anomaly
+                or time_anomaly
+                or status_changed
+            )
+            ml_evidence = rf_detected or iso_detected
+            # A payload is only reported when it produced STRONG,
+            # observable evidence. Payloads that were tested but produced
+            # no real signal are not added to the report at all (this is
+            # what removes the flood of false positives).
+            #
+            # verification_status then splits that evidence into two
+            # honest tiers instead of one blanket label, so the report
+            # (and the UI) can show a real difference between a
+            # near-certain finding and one that still needs a human to
+            # check it.
+            if not strong_evidence:
+                continue
+            verification_status = "Confirmed" if confirmed_evidence else "Potential"
+            evidence_score = 0
+            if error_evidence:
+                evidence_score += 3
+            if sensitive_evidence:
+                evidence_score += 4
+            if server_error:
+                evidence_score += 2
+            if timeout_evidence:
+                evidence_score += 2
+            if time_anomaly:
+                evidence_score += 2
+            if xss_reflection:
+                evidence_score += 3
+            if payload_reflected:
+                evidence_score += 3
+            if content_anomaly:
+                evidence_score += 2
+            if status_changed:
+                evidence_score += 2
+            if rf_detected:
+                evidence_score += 1
+            if iso_detected:
+                evidence_score += 1
+            severity = self._calculate_severity(
+                feat,
+                rf_confidence
+            )
+            detection = {
+                'url': feat.get('url', ''),
+                'input_field': feat.get('input_field', ''),
+                'payload': feat.get('payload', ''),
+                'payload_type': payload_type,
+                'vulnerability_type': self._get_vuln_type(feat),
+                'severity': severity,
+                'confidence': round(
+                    rf_confidence * 100,
+                    2
+                ),
+                'rf_detected': rf_detected,
+                'iso_detected': iso_detected,
+                'response_time': feat.get(
+                    'response_time',
+                    0
+                ),
+                'status_code': feat.get(
+                    'status_code',
+                    0
+                ),
+                'error_indicators': feat.get(
+                    'error_count',
+                    0
+                ),
+                'sensitive_data': feat.get(
+                    'sensitive_count',
+                    0
+                ),
+                'evidence': self._get_evidence(feat),
+                'evidence_score': evidence_score,
+                'technical_evidence': technical_evidence,
+                'behavioral_evidence': behavioral_evidence,
+                'verification_status': verification_status
+            }
+            detections.append(detection)
+        confirmed = sum(
+            1
+            for d in detections
+            if d.get('verification_status') == 'Confirmed'
+        )
+        potential = len(detections) - confirmed
+        print(
+            f"[*] Classification complete: "
+            f"{len(detections)} findings with evidence detected"
+        )
+        print(
+            f"[*] Confirmed findings (strong evidence): "
+            f"{confirmed}"
+        )
+        print(
+            f"[*] Potential findings requiring verification: "
+            f"{potential}"
+        )
         return detections
-
     def _get_vuln_type(self, feat):
         """Map payload type to vulnerability name"""
         mapping = {
@@ -209,34 +329,20 @@ class Classifier:
             'cmd_injection': 'Command Injection'
         }
         return mapping.get(feat['payload_type'], 'Unknown')
-
-
     def _calculate_severity(self, feat, confidence):
         """Calculate severity based on observed evidence rather than ML confidence."""
-
-        # Highest confidence evidence
         if feat['sensitive_count'] > 0:
             return "Critical"
-
-        # Strong evidence
         if feat['error_count'] > 0:
             return "High"
-
-        # Possible time-based attack
         if feat['response_time'] > 3.0:
             return "High"
-
-        # Server crash caused by payload
         if feat['status_code'] == 500:
             return "High"
-
-        # Behavioural anomaly only
         return "Medium"
-
     def _get_evidence(self, feat):
         """Generate human-readable evidence"""
         evidence = []
-
         if feat['error_count'] > 0:
             evidence.append(
                 f"Database error keywords detected in response ({feat['error_count']} occurrences)"
@@ -255,5 +361,4 @@ class Classifier:
             evidence.append(
                 "The Isolation Forest model identified a significant deviation from the baseline response behaviour after the payload was submitted."
             )
-
         return evidence

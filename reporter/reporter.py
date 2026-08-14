@@ -1,5 +1,4 @@
 from datetime import datetime
-
 class Reporter:
     def __init__(self):
         self.cvss_scores = {
@@ -8,25 +7,31 @@ class Reporter:
             'Medium': 5.0,
             'Low': 2.5
         }
-
     def generate(self, detections, target_url):
         """Generate structured vulnerability report"""
         print("[*] Generating vulnerability report...")
 
-        report = []
-        seen = set()
-
-        for i, detection in enumerate(detections):
-            # Deduplicate similar findings
+        # Deduplicate by (url, field, vulnerability_type), but keep the
+        # STRONGEST finding for each group, not just the first payload
+        # that happened to be tried. Payloads are tested in a fixed
+        # order, so a weak boolean SQLi payload (' OR '1'='1) often runs
+        # before the payload that actually triggers a real database
+        # error or leaks a file -- without this, the report would show
+        # the weak "Potential" result and silently discard the much
+        # stronger "Confirmed" one found moments later on the same field.
+        best_by_key = {}
+        for detection in detections:
             dedup_key = (
                 detection['url'],
                 detection['input_field'],
                 detection['vulnerability_type']
             )
-            if dedup_key in seen:
-                continue
-            seen.add(dedup_key)
+            existing = best_by_key.get(dedup_key)
+            if existing is None or self._is_stronger(detection, existing):
+                best_by_key[dedup_key] = detection
 
+        report = []
+        for i, detection in enumerate(best_by_key.values()):
             report_entry = {
                 'id': f"VULN-{i+1:03d}",
                 'target_url': target_url,
@@ -44,9 +49,7 @@ class Reporter:
                 'response_time': round(detection['response_time'], 3),
                 'status_code': detection['status_code'],
                 'evidence': self._build_evidence_summary(detection),
-                'description': self._get_description(
-                    detection['vulnerability_type'],
-                ),
+                'description': self._get_description(detection),
                 'impact': self._get_impact(
                     detection['vulnerability_type']
                 ),
@@ -59,38 +62,100 @@ class Reporter:
                 'verification_status': self._get_verification_status(detection)
             }
             report.append(report_entry)
-
         # Sort by severity
         severity_order = {
             'Critical': 0, 'High': 1, 'Medium': 2, 'Low': 3
         }
         report.sort(key=lambda x: severity_order.get(x['severity'], 4))
-
         print(f"[*] Report generated: {len(report)} unique vulnerabilities")
         return report
+    def _is_stronger(self, a, b):
+        """True if detection `a` is stronger evidence than `b` for the
+        same (url, field, vulnerability_type) group. Confirmed always
+        outranks Potential; within the same tier, the higher evidence
+        score (computed by the classifier) wins; ties fall back to
+        whichever had the higher ML confidence."""
+        tier = {'Confirmed': 1, 'Potential': 0}
+        a_tier = tier.get(a.get('verification_status'), 0)
+        b_tier = tier.get(b.get('verification_status'), 0)
+        if a_tier != b_tier:
+            return a_tier > b_tier
+        a_score = a.get('evidence_score', 0)
+        b_score = b.get('evidence_score', 0)
+        if a_score != b_score:
+            return a_score > b_score
+        return a.get('confidence', 0) > b.get('confidence', 0)
+    def _get_description(self, detection):
+        """Return a description that reflects what was ACTUALLY observed
+        for THIS finding, not a generic statement for the vulnerability
+        type. A Confirmed finding names the specific hard evidence found;
+        a Potential finding keeps the original, honestly-worded caveat."""
+        vuln_type = detection.get('vulnerability_type', '')
+        status = detection.get('verification_status', 'Potential')
+        error_count = detection.get('error_indicators', 0)
+        sensitive_count = detection.get('sensitive_data', 0)
+        status_code = detection.get('status_code', 0)
 
-    def _get_description(self, vuln_type):
-        """Return an evidence-based description."""
+        if status != 'Confirmed':
+            potential_descriptions = {
+                "SQL Injection":
+                    "The submitted SQL payload caused the application to respond differently from its normal behaviour. No direct database errors or sensitive information were observed during automated testing. This finding should be treated as a potential SQL Injection vulnerability and manually verified.",
+                "Cross-Site Scripting (XSS)":
+                    "The submitted XSS payload produced an abnormal application response. Although successful script execution was not confirmed, the behaviour suggests a potential Cross-Site Scripting vulnerability requiring manual verification.",
+                "Path Traversal":
+                    "A path traversal payload caused an unusual application response. No sensitive files were disclosed during automated testing, but the endpoint should be manually verified for possible directory traversal weaknesses.",
+                "Command Injection":
+                    "A command injection payload resulted in abnormal application behaviour. Automated testing did not confirm successful command execution; therefore, manual verification is recommended."
+            }
+            return potential_descriptions.get(
+                vuln_type,
+                "Potential security weakness detected. Manual verification is recommended."
+            )
 
-        descriptions = {
-            "SQL Injection":
-                "The submitted SQL payload caused the application to respond differently from its normal behaviour. No direct database errors or sensitive information were observed during automated testing. This finding should be treated as a potential SQL Injection vulnerability and manually verified.",
+        # CONFIRMED -- name the specific hard evidence that was found,
+        # instead of a generic line that could contradict the Evidence
+        # section sitting right next to it.
+        if vuln_type == "SQL Injection":
+            if error_count > 0:
+                return ("The submitted SQL payload caused the application to return a genuine "
+                    "database error, indicating the input was interpreted as part of the SQL "
+                    "query rather than as safe data. This is direct technical evidence of a "
+                    "SQL Injection vulnerability.")
+            if sensitive_count > 0:
+                return ("The submitted SQL payload caused the application to disclose sensitive "
+                    "system or database information in its response, directly confirming a "
+                    "SQL Injection vulnerability.")
+            if status_code >= 500:
+                return ("The submitted SQL payload caused the application to crash with a "
+                    "server error, indicating the query was broken by unsanitised input. This "
+                    "directly confirms a SQL Injection vulnerability.")
+            return ("The submitted SQL payload produced strong, directly observed evidence of "
+                "SQL Injection during automated testing.")
 
-            "Cross-Site Scripting (XSS)":
-                "The submitted XSS payload produced an abnormal application response. Although successful script execution was not confirmed, the behaviour suggests a potential Cross-Site Scripting vulnerability requiring manual verification.",
+        if vuln_type == "Cross-Site Scripting (XSS)":
+            return ("The submitted XSS payload was reflected back by the application completely "
+                "unescaped, meaning a browser rendering this response would execute the "
+                "injected script. This directly confirms a Cross-Site Scripting vulnerability.")
 
-            "Path Traversal":
-                "A path traversal payload caused an unusual application response. No sensitive files were disclosed during automated testing, but the endpoint should be manually verified for possible directory traversal weaknesses.",
+        if vuln_type == "Command Injection":
+            if sensitive_count > 0:
+                return ("The submitted command injection payload caused the server to execute "
+                    "an operating-system command and return its real output (including "
+                    "sensitive system data) in the HTTP response. This directly confirms "
+                    "remote command execution.")
+            if status_code >= 500:
+                return ("The submitted command injection payload caused the server to crash, "
+                    "indicating the payload reached the underlying shell. This directly "
+                    "confirms a Command Injection vulnerability.")
+            return ("The submitted command injection payload produced strong, directly "
+                "observed evidence of command execution during automated testing.")
 
-            "Command Injection":
-                "A command injection payload resulted in abnormal application behaviour. Automated testing did not confirm successful command execution; therefore, manual verification is recommended."
-        }
+        if vuln_type == "Path Traversal":
+            return ("The submitted path traversal payload caused the application to disclose "
+                "the contents of a sensitive system file, directly confirming a Path Traversal "
+                "vulnerability.")
 
-        return descriptions.get(
-            vuln_type,
-            "Potential security weakness detected. Manual verification is recommended."
-        ) 
-
+        return "This finding was confirmed with direct technical evidence during automated testing."
     def _get_impact(self, vuln_type):
         """Return impact statement for each vulnerability type"""
         impacts = {
@@ -120,7 +185,6 @@ class Reporter:
             ]
         }
         return impacts.get(vuln_type, ['Unknown impact'])
-
     def _get_recommendation(self, vuln_type):
         """Return fix recommendation for each vulnerability type"""
         recommendations = {
@@ -156,10 +220,8 @@ class Reporter:
         return recommendations.get(
             vuln_type, 'Implement proper input validation and output encoding.'
         )
-
     def _get_reproduction(self, detection):
         """Generate manual verification steps."""
-
         return [
             f"1. Navigate to: {detection['url']}",
             f"2. Locate the input field: '{detection['input_field']}'",
@@ -180,13 +242,9 @@ class Reporter:
               f"   • This finding is currently classified as {self._get_verification_status(detection)}.",
             "   • Manual penetration testing is recommended before confirming exploitation."
         ]
-
     def _build_evidence_summary(self, detection):
         """Build a clear, human-readable evidence summary."""
-
-
         evidence = []
-
         # HTTP response information
         evidence.append(
             f"HTTP Status Code: {detection['status_code']}"
@@ -194,7 +252,6 @@ class Reporter:
         evidence.append(
             f"Response Time: {detection['response_time']:.3f} seconds"
         )
-
         # Database error indicators
         if detection['error_indicators'] > 0:
             evidence.append(
@@ -204,7 +261,6 @@ class Reporter:
             evidence.append(
                 "No database error indicators detected."
             )
-
         # Sensitive data indicators
         if detection['sensitive_data'] > 0:
             evidence.append(
@@ -214,43 +270,30 @@ class Reporter:
             evidence.append(
                 "No sensitive information disclosed."
             )
-
         # Machine learning confidence
         evidence.append(
             f"Machine Learning Confidence: {detection['confidence']}%"
         )
-
         # Existing evidence generated by classifier
         evidence.extend(detection['evidence'])
-
         return evidence
-
-
     def _get_detection_method(self, detection):
         """Return the detection technique used."""
-
         if detection.get("rf_detected") and detection.get("iso_detected"):
             return "Random Forest + Isolation Forest (Hybrid Machine Learning Analysis)"
-
         elif detection.get("rf_detected"):
             return "Random Forest Classification"
-
         elif detection.get("iso_detected"):
             return "Isolation Forest Behavioural Analysis (Machine Learning)"
-
         return "Rule-Based Detection"
-  
     def _get_verification_status(self, detection):
-        """Determine whether the finding is Confirmed or Potential."""
-
-        evidence = " ".join(detection.get("evidence", [])).lower()
-
-        if (
-            "database error" in evidence
-            or "sensitive system data" in evidence
-            or detection.get("status_code") == 500
-        ):
-
-            return "Confirmed"
-          
-        return "Potential"
+        """Return verification status determined by the classifier."""
+        status = detection.get(
+            'verification_status',
+            'Potential'
+        )
+        if status == 'Confirmed':
+            return 'Confirmed'
+        if status == 'Evidence Detected':
+            return 'Evidence Detected'
+        return 'Potential'
