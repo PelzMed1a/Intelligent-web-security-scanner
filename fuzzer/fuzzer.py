@@ -2,6 +2,12 @@ import requests
 import time
 from urllib.parse import urljoin
 
+
+# NodeGoat default seeded account (created by its own db-reset).
+NODEGOAT_USER = "user1"
+NODEGOAT_PASS = "User1_123"
+
+
 class Fuzzer:
     def __init__(self, base_url):
         self.base_url = base_url
@@ -9,11 +15,56 @@ class Fuzzer:
         self.session.headers.update({
             'User-Agent': 'Mozilla/5.0 (Scanner Research Tool)'
         })
-        self._login()
+        # Authenticate with whichever target we are pointed at, so the
+        # fuzzing session can reach the protected pages.
+        if self._is_nodegoat():
+            self._login_nodegoat()
+        else:
+            self._login()
         self.payloads = self._load_payloads()
 
+    def _is_nodegoat(self):
+        url = self.base_url.lower()
+        return ":4000" in url or ":3000" in url or "nodegoat" in url
+
+    def _login_nodegoat(self):
+        """Authenticate the fuzzing session with NodeGoat."""
+        try:
+            login_url = urljoin(self.base_url + "/", "login")
+            response = self.session.get(login_url, timeout=10)
+            from bs4 import BeautifulSoup
+            soup = BeautifulSoup(response.text, 'html.parser')
+            token_field = soup.find('input', {'name': '_csrf'})
+            csrf = token_field.get('value', '') if token_field else ''
+            login_data = {
+                'userName': NODEGOAT_USER,
+                'password': NODEGOAT_PASS,
+                '_csrf': csrf
+            }
+            resp = self.session.post(
+                login_url,
+                data=login_data,
+                timeout=10,
+                allow_redirects=False,
+                headers={'Referer': login_url}
+            )
+            location = resp.headers.get('Location', '')
+            last = location.rstrip('/').rsplit('/', 1)[-1]
+            if resp.status_code in (301, 302, 303, 307, 308) and last != 'login':
+                print(f"[+] Fuzzer authenticated to NodeGoat (-> {location})")
+            else:
+                dash = self.session.get(
+                    urljoin(self.base_url + "/", "dashboard"),
+                    timeout=10, allow_redirects=False)
+                if dash.status_code == 200:
+                    print("[+] Fuzzer authenticated to NodeGoat")
+                else:
+                    print("[!] WARNING: Fuzzer NodeGoat authentication failed.")
+        except Exception as e:
+            print(f"[!] Fuzzer NodeGoat login failed: {e}")
+
     def _login(self):
-        """Re-authenticate session for fuzzing"""
+        """Re-authenticate session for fuzzing (DVWA)"""
         try:
             login_url = urljoin(self.base_url, '/login.php')
             response = self.session.get(login_url, timeout=10)
@@ -101,13 +152,14 @@ class Fuzzer:
     def _get_context(self, input_field):
         """Determine appropriate payload type based on input context.
         NOTE: 'name' is intentionally NOT an sqli keyword. DVWA's
-        reflected-XSS field is literally called 'name', and it was being
-        misrouted to SQL-injection payloads, so XSS was never tested there."""
+        reflected-XSS field is literally called 'name', and NodeGoat's
+        profile uses firstName/lastName -- routing those to XSS is what
+        lets the scanner catch reflected/stored XSS on both targets."""
         name = input_field.get('name', '').lower()
         input_type = input_field.get('type', 'text').lower()
         if any(k in name for k in ['id', 'user', 'pass', 'search', 'query', 'q']):
             return 'sqli'
-        elif any(k in name for k in ['comment', 'message', 'text', 'input', 'content', 'name']):
+        elif any(k in name for k in ['comment', 'message', 'text', 'input', 'content', 'name', 'memo', 'title', 'address']):
             return 'xss'
         elif any(k in name for k in ['file', 'path', 'dir', 'folder', 'page', 'include']):
             return 'path_traversal'
@@ -149,10 +201,7 @@ class Fuzzer:
             form_data = {}
 
             # Always replay the form's submit button and hidden fields
-            # (e.g. Submit=Submit, CSRF user_token) unmodified. Without
-            # this, DVWA-style pages that gate on isset($_GET['Submit'])
-            # never run the vulnerable code path at all -- every payload
-            # just returned the empty form, unchanged.
+            # (e.g. Submit=Submit, CSRF _csrf/user_token) unmodified.
             for ef in endpoint.get('extra_fields', []):
                 form_data[ef['name']] = ef['value']
 
@@ -190,11 +239,6 @@ class Fuzzer:
                 'status_code': response.status_code,
                 'response_time': response_time,
                 'content_length': len(response.content),
-                # Do NOT truncate here. DVWA's real pages have a long
-                # navigation menu before the vulnerable content, so a
-                # fixed cutoff (the old code used [:2000]) could slice
-                # off reflected XSS or command output before the scanner
-                # ever sees it.
                 'response_text': response.text,
                 'headers': dict(response.headers)
             }
