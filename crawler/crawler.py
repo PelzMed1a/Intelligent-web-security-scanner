@@ -11,10 +11,16 @@ NODEGOAT_PASS = "User1_123"
 
 class Crawler:
 
-    def __init__(self, base_url):
+    def __init__(self, base_url, username=None, password=None):
         self.base_url = base_url.rstrip("/")
         self.visited = set()
         self.endpoints = []
+
+        # Credentials supplied by the security tester through the scan
+        # form. If left blank, we fall back to the known default account
+        # for the detected target so quick local testing still works.
+        self.username = username or None
+        self.password = password or None
 
         self.session = requests.Session()
         self.session.headers.update({
@@ -59,8 +65,8 @@ class Crawler:
             csrf = token_field.get("value", "") if token_field else ""
 
             login_data = {
-                "userName": NODEGOAT_USER,
-                "password": NODEGOAT_PASS,
+                "userName": self.username or NODEGOAT_USER,
+                "password": self.password or NODEGOAT_PASS,
                 "_csrf": csrf
             }
 
@@ -130,8 +136,8 @@ class Crawler:
 
             # Step 2: Submit login
             login_data = {
-                "username": "admin",
-                "password": "password",
+                "username": self.username or "admin",
+                "password": self.password or "password",
                 "Login": "Login",
                 "user_token": token
             }

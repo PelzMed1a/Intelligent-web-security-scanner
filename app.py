@@ -24,6 +24,21 @@ def start_scan():
     if not target_url:
         return jsonify({"error": "No target URL provided"}), 400
 
+    # Optional login details for the target (e.g. DVWA/NodeGoat account).
+    # Left blank, the scanner falls back to its own known default account
+    # for the detected target type so quick local testing still works.
+    username = request.form.get('username') or None
+    password = request.form.get('password') or None
+
+    # The tester must explicitly confirm they are authorised to test this
+    # target before any active scanning begins.
+    authorized = request.form.get('authorized')
+    if not authorized:
+        return jsonify({
+            "error": "You must confirm you are authorised to test this "
+                     "target before scanning can begin."
+        }), 400
+
     # Reset results
     scan_results['status'] = 'running'
     scan_results['target'] = target_url
@@ -31,7 +46,10 @@ def start_scan():
     scan_results['progress'] = 0
 
     # Run scan in background thread
-    thread = threading.Thread(target=run_scan, args=(target_url,))
+    thread = threading.Thread(
+        target=run_scan,
+        args=(target_url, username, password)
+    )
     thread.daemon = True
     thread.start()
 
@@ -41,7 +59,7 @@ def start_scan():
 def get_results():
     return jsonify(scan_results)
 
-def run_scan(target_url):
+def run_scan(target_url, username=None, password=None):
     """Main scan orchestrator - calls all modules"""
     from crawler.crawler import Crawler
     from fuzzer.fuzzer import Fuzzer
@@ -53,7 +71,7 @@ def run_scan(target_url):
         # Phase 1: Crawl
         print(f"[*] Starting crawl on {target_url}")
 
-        crawler = Crawler(target_url)
+        crawler = Crawler(target_url, username=username, password=password)
 
         try:
             endpoints = crawler.crawl()
@@ -70,7 +88,7 @@ def run_scan(target_url):
 
         # Phase 2: Fuzz
         print("[*] Starting fuzzing phase")
-        fuzzer = Fuzzer(target_url)
+        fuzzer = Fuzzer(target_url, username=username, password=password)
         responses = fuzzer.fuzz(endpoints)
         scan_results['progress'] = 50
         print(f"[*] Collected {len(responses)} responses")

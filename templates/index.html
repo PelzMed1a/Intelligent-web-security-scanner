@@ -319,6 +319,21 @@
                 Start Scan
             </button>
         </div>
+        <div class="input-group" style="margin-top: 12px;">
+            <input type="text" id="loginUsername"
+                   placeholder="Login username (optional)"/>
+            <input type="password" id="loginPassword"
+                   placeholder="Login password (optional)"/>
+        </div>
+        <p style="font-size: 12px; color: #64748b; margin-top: 6px;">
+            Leave the login fields blank to use the scanner's built-in
+            default test account for the detected target. Provide your
+            own credentials to authenticate as a specific user.
+        </p>
+        <label style="display:flex; align-items:center; gap:8px; margin-top:14px; font-size:13px; color:#94a3b8; cursor:pointer;">
+            <input type="checkbox" id="authorizedCheck" style="width:16px; height:16px;"/>
+            I confirm I am authorised to test this target.
+        </label>
         <div class="progress-bar" id="progressBar">
             <div class="progress-fill" id="progressFill"></div>
         </div>
@@ -363,6 +378,14 @@
             return;
         }
 
+        if (!document.getElementById('authorizedCheck').checked) {
+            alert('Please confirm you are authorised to test this target before starting a scan.');
+            return;
+        }
+
+        const username = document.getElementById('loginUsername').value.trim();
+        const password = document.getElementById('loginPassword').value;
+
         // Reset UI
         document.getElementById('scanBtn').disabled = true;
         document.getElementById('scanBtn').textContent = 'Scanning...';
@@ -377,6 +400,9 @@
         // Start scan
         const formData = new FormData();
         formData.append('target_url', targetUrl);
+        formData.append('username', username);
+        formData.append('password', password);
+        formData.append('authorized', 'true');
 
         fetch('/scan', { method: 'POST', body: formData })
             .then(r => r.json())
@@ -482,7 +508,7 @@
                             <label>Detection Method</label>
                             <span>${v.detection_method}</span>
                         </div>
-                      
+
                         <div class="detail-item">
                             <label>Verification Status</label>
                             <span class="verification-badge ${v.verification_status.toLowerCase()}">

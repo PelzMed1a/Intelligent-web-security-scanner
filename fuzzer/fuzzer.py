@@ -9,8 +9,12 @@ NODEGOAT_PASS = "User1_123"
 
 
 class Fuzzer:
-    def __init__(self, base_url):
+    def __init__(self, base_url, username=None, password=None):
         self.base_url = base_url
+        # Same tester-supplied credentials the crawler used, so fuzzing
+        # requests are made under the same authenticated identity.
+        self.username = username or None
+        self.password = password or None
         self.session = requests.Session()
         self.session.headers.update({
             'User-Agent': 'Mozilla/5.0 (Scanner Research Tool)'
@@ -37,8 +41,8 @@ class Fuzzer:
             token_field = soup.find('input', {'name': '_csrf'})
             csrf = token_field.get('value', '') if token_field else ''
             login_data = {
-                'userName': NODEGOAT_USER,
-                'password': NODEGOAT_PASS,
+                'userName': self.username or NODEGOAT_USER,
+                'password': self.password or NODEGOAT_PASS,
                 '_csrf': csrf
             }
             resp = self.session.post(
@@ -73,8 +77,8 @@ class Fuzzer:
             token_field = soup.find('input', {'name': 'user_token'})
             token = token_field['value'] if token_field else ''
             login_data = {
-                'username': 'admin',
-                'password': 'password',
+                'username': self.username or 'admin',
+                'password': self.password or 'password',
                 'Login': 'Login',
                 'user_token': token
             }

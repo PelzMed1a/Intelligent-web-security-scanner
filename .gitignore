@@ -2,3 +2,10 @@ __pycache__/
 *.pyc
 .DS_Store
 *.log
+*.bak
+*.before_verification
+NodeGoat/
+*.bak
+*.before_verification
+__pycache__/
+*.pyc
