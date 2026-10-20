@@ -210,15 +210,31 @@ class Classifier:
             error_evidence = feat.get('error_count', 0) > 0
             sensitive_evidence = feat.get('sensitive_count', 0) > 0
             server_error = feat.get('status_code', 0) >= 500
-            timeout_evidence = feat.get('timeout', 0) == 1
+            # A TIMEOUT is a network condition, never proof of a flaw. DVWA
+            # and NodeGoat are local, so an offline DNS stall or a busy
+            # server turns a request into a timeout; reporting that as a
+            # "Potential" vulnerability invented a finding that had nothing
+            # to do with the target. A timeout only means something when the
+            # same field answered promptly on its baseline -- then the
+            # payload, not the network, is what made the server hang.
             baseline = feat.get('baseline', {}) or {}
+            baseline_answered = bool(baseline) and not baseline.get('timeout')
+            timeout_evidence = (
+                feat.get('timeout', 0) == 1
+                and baseline_answered
+            )
             baseline_time = baseline.get(
                 'response_time',
                 feat.get('response_time', 0)
             )
             response_time = feat.get('response_time', 0)
+            # A deviation can only be measured against a measurement that
+            # actually happened. When the baseline timed out, its recorded
+            # time is just the timeout constant, so any "deviation" from it
+            # is arithmetic on a made-up number.
             time_anomaly = (
-                response_time >= 3.0
+                baseline_answered
+                and response_time >= 3.0
                 and response_time > baseline_time + 2.0
             )
             baseline_length = baseline.get(

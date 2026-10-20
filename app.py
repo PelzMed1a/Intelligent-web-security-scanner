@@ -240,6 +240,40 @@ def get_results():
 # Stage order used when reporting timings in the final summary.
 STAGE_ORDER = [stage_id for stage_id, _ in STAGE_DEFINITIONS]
 
+# Every finished scan is written here as JSON, so a report can be opened
+# again later without re-running the scan. Older scans are kept; nothing
+# is overwritten.
+REPORTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                           'reports')
+
+
+def _save_report(target_url, report, started_at):
+    """Write one scan's finished report to disk and return the file path.
+
+    The scanner's results used to live only in memory, so the moment the
+    next scan started, the previous report was gone. Each scan now leaves
+    a dated JSON file behind instead.
+    """
+    try:
+        os.makedirs(REPORTS_DIR, exist_ok=True)
+        stamp = started_at.replace(' ', '_').replace(':', '-')
+        host = re.sub(r'[^A-Za-z0-9.-]+', '_', target_url.split('//')[-1])
+        path = os.path.join(REPORTS_DIR, f"scan_{stamp}_{host}.json")
+        payload = {
+            'target': target_url,
+            'scanned_at': started_at,
+            'finished_at': time.strftime("%Y-%m-%d %H:%M:%S"),
+            'finding_count': len(report),
+            'vulnerabilities': report,
+        }
+        with open(path, 'w', encoding='utf-8') as fh:
+            json.dump(payload, fh, indent=2)
+        return path
+    except Exception as exc:
+        # A report that cannot be saved must never fail the scan itself.
+        log(f"  Report not saved: {exc}")
+        return None
+
 
 def _log_scan_summary(target_url, started_at, scan_started, durations,
                       counts, report):
@@ -386,6 +420,10 @@ def run_scan(target_url, username=None, password=None):
         scan_results['status'] = 'complete'
         scan_results['progress'] = 100
         _refresh_activity()
+
+        saved_report = _save_report(target_url, report, started_at)
+        if saved_report:
+            log(f"  Saved report    : {saved_report}")
 
         _log_scan_summary(target_url, started_at, scan_started, durations,
                           counts, report)

@@ -9,3 +9,6 @@ NodeGoat/
 *.before_verification
 __pycache__/
 *.pyc
+
+# Scan output written by the scanner (one JSON file per scan)
+reports/

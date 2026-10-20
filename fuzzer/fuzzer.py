@@ -23,6 +23,12 @@ MAX_WORKERS = 6
 # of the scan's time budget.
 SLOW_FIELD_BASELINE = 5.0
 FIELD_TIME_BUDGET = 8.0
+# The baseline is only a reference measurement, so it gets a short leash.
+# DVWA's exec page runs `ping -c 1 <input>` on whatever we send; the
+# baseline word is not a hostname, so offline it stalls in DNS until the
+# request times out. A full 15s wait on a reference request is wasted
+# scan time, and -- worse -- it must never be mistaken for a slow field.
+BASELINE_TIMEOUT = 5
 
 
 class Fuzzer:
@@ -272,7 +278,7 @@ class Fuzzer:
 
         baseline_future = pool.submit(
             self._send_request, endpoint, input_field,
-            'normal_input', 'baseline'
+            'normal_input', 'baseline', BASELINE_TIMEOUT
         )
         results = list(pool.map(send, first))
         baseline = baseline_future.result()
@@ -283,7 +289,16 @@ class Fuzzer:
                 collected.append(data)
 
         baseline_time = (baseline or {}).get('response_time', 0.0)
-        if baseline_time > SLOW_FIELD_BASELINE:
+        # A TIMED-OUT baseline does not mean the field is slow. DVWA's
+        # exec page runs `ping -c 1 <input>`, and the placeholder word is
+        # not a real hostname, so offline it stalls in DNS until the
+        # request times out while every real payload (`; id`, `; cat
+        # /etc/passwd`) returns instantly. Skipping the payloads on that
+        # signal threw away exactly the evidence that proves command
+        # injection. Only a baseline that actually ANSWERED slowly
+        # indicates a target-side lookup worth skipping.
+        baseline_answered = bool(baseline) and not baseline.get('timeout')
+        if baseline_answered and baseline_time > SLOW_FIELD_BASELINE:
             print(
                 f"[*] Field '{name}' baseline took {baseline_time:.1f}s "
                 f"(slow target-side lookup); skipping {len(rest)} "
@@ -308,7 +323,8 @@ class Fuzzer:
 
         return collected
 
-    def _send_request(self, endpoint, input_field, payload, payload_type):
+    def _send_request(self, endpoint, input_field, payload,
+                      payload_type, timeout=15):
         """Send a single request and record the response"""
         session = self._session()
         try:
@@ -331,14 +347,14 @@ class Fuzzer:
                 response = session.post(
                     endpoint['url'],
                     data=form_data,
-                    timeout=15,
+                    timeout=timeout,
                     allow_redirects=True
                 )
             else:
                 response = session.get(
                     endpoint['url'],
                     params=form_data,
-                    timeout=15,
+                    timeout=timeout,
                     allow_redirects=True
                 )
 
@@ -364,7 +380,7 @@ class Fuzzer:
                 'payload': payload,
                 'payload_type': payload_type,
                 'status_code': 0,
-                'response_time': 15.0,
+                'response_time': float(timeout),
                 'content_length': 0,
                 'response_text': '',
                 'headers': {},
