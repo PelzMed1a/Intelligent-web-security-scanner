@@ -2,6 +2,7 @@ import requests
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin, urlparse
 from crawler.selenium_renderer import SeleniumRenderer
+from scanner_http import build_session, set_dvwa_security
 
 
 # NodeGoat default seeded account (created by its own db-reset).
@@ -22,13 +23,19 @@ class Crawler:
         self.username = username or None
         self.password = password or None
 
-        self.session = requests.Session()
-        self.session.headers.update({
-            "User-Agent": "Mozilla/5.0 (Scanner Research Tool)"
-        })
+        self.session = build_session()
 
-        # Selenium renderer
-        self.renderer = SeleniumRenderer(headless=True)
+        # Selenium renderer is created lazily -- only if a caller actually
+        # asks for JavaScript rendering. A normal scan never needs it, so
+        # this keeps the scanner working on machines without Chromium and
+        # avoids launching a browser (and any of its background network
+        # activity) during an ordinary local, offline scan.
+        self.renderer = None
+
+        # Optional progress callback used to stream crawl progress to the UI.
+        # Set by ``crawl()``; defaults to a no-op so the crawler can be used
+        # standalone without any progress reporting.
+        self.on_progress = lambda *args, **kwargs: None
 
         # Pick the right login routine for the target. NodeGoat is a
         # Node.js app that logs in completely differently from DVWA, so
@@ -224,71 +231,28 @@ class Crawler:
             return False
 
     def _set_security_low(self):
-        """Set DVWA security level to LOW."""
+        """Set DVWA security level to LOW (per-session cookie)."""
 
         try:
-            security_url = urljoin(
-                self.base_url + "/",
-                "security.php"
-            )
-
-            # Get a fresh session token
-            response = self.session.get(
-                security_url,
-                timeout=10
-            )
-
-            soup = BeautifulSoup(
-                response.text,
-                "html.parser"
-            )
-
-            token_field = soup.find(
-                "input",
-                {"name": "user_token"}
-            )
-
-            token = (
-                token_field.get("value", "")
-                if token_field
-                else ""
-            )
-
-            security_data = {
-                "security": "low",
-                "seclev_submit": "Submit",
-                "user_token": token
-            }
-
-            security_response = self.session.post(
-                security_url,
-                data=security_data,
-                timeout=10,
-                allow_redirects=True,
-                headers={
-                    "Referer": security_url
-                }
-            )
-
-            # Check the security cookie
-            security_cookie = self.session.cookies.get(
-                "security"
-            )
-
-            if security_cookie == "low":
+            if set_dvwa_security(self.session, self.base_url, "low"):
                 print("[*] DVWA security level set to LOW")
             else:
-                print(
-                    "[!] Could not confirm LOW security level"
-                )
+                print("[!] Could not confirm LOW security level")
 
         except Exception as e:
             print(
                 f"[!] Failed to set DVWA security level: {e}"
             )
 
-    def crawl(self):
-        """Crawl the target and find all testable endpoints."""
+    def crawl(self, on_progress=None):
+        """Crawl the target and find all testable endpoints.
+
+        ``on_progress`` is an optional callback ``on_progress(detail)`` used to
+        report live crawl progress to the UI.
+        """
+
+        if on_progress is not None:
+            self.on_progress = on_progress
 
         print(f"[*] Crawling {self.base_url}")
 
@@ -300,6 +264,32 @@ class Crawler:
         )
 
         return self.endpoints
+
+    def _fetch(self, url, max_hops=5):
+        """GET a page, following redirects only while they stay on-target.
+
+        Some pages redirect to an external site. Following that is outside
+        the scope of the scan and, on an offline machine, stalls while the
+        DNS lookup times out, so those redirects are not followed.
+        """
+        base_host = urlparse(self.base_url).netloc
+        current = url
+        response = None
+        for _ in range(max_hops):
+            response = self.session.get(
+                current, timeout=10, allow_redirects=False
+            )
+            if response.status_code not in (301, 302, 303, 307, 308):
+                return response
+            location = response.headers.get('Location', '')
+            if not location:
+                return response
+            target = urljoin(current, location)
+            if urlparse(target).netloc != base_host:
+                print(f"[!] Not following off-site redirect: {target}")
+                return response
+            current = target
+        return response
 
     def _crawl_page(self, url):
         """Recursively crawl pages and extract forms."""
@@ -329,11 +319,7 @@ class Crawler:
         print(f"[CRAWLING] {url}")
 
         try:
-            response = self.session.get(
-                url,
-                timeout=10,
-                allow_redirects=True
-            )
+            response = self._fetch(url)
 
             # Detect authentication redirects. DVWA bounces to login.php;
             # NodeGoat bounces to /login. If a page we requested ends up
@@ -366,6 +352,11 @@ class Crawler:
             soup = BeautifulSoup(
                 html,
                 "html.parser"
+            )
+
+            self.on_progress(
+                f"{len(self.visited)} pages crawled, "
+                f"{len(self.endpoints)} endpoints found"
             )
 
             # Extract forms
@@ -519,6 +510,19 @@ class Crawler:
         return None
 
     def close(self):
-        """Close Selenium renderer."""
+        """Close the Selenium renderer if one was created."""
 
-        self.renderer.close()
+        if self.renderer is not None:
+            self.renderer.close()
+
+    def _get_renderer(self):
+        """Return a Selenium renderer, creating it on first use.
+
+        Kept lazy so that ordinary scans neither require Chromium nor start
+        a browser.
+        """
+
+        if self.renderer is None:
+            self.renderer = SeleniumRenderer(headless=True)
+
+        return self.renderer

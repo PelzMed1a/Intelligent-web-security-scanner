@@ -1,3 +1,4 @@
+import time
 import numpy as np
 import pandas as pd
 from sklearn.ensemble import RandomForestClassifier, IsolationForest
@@ -6,6 +7,14 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report, confusion_matrix
 import warnings
 warnings.filterwarnings('ignore')
+
+# When a live progress callback is supplied (i.e. an interactive scan driven
+# from the web UI), each model state is held on screen briefly so a human can
+# follow which model is working. Scripted/batch use passes no callback and
+# therefore runs at full speed. Kept short: the states add up across a scan.
+MODEL_STEP_DWELL = 0.15
+
+
 class Classifier:
     def __init__(self):
         self.rf_model = RandomForestClassifier(
@@ -112,41 +121,78 @@ class Classifier:
             normal_labels, sqli_labels, xss_labels, path_labels
         ])
         return X, y
-    def _train(self):
-        """Train both ML models on generated training data"""
+    def _train(self, notify=None):
+        """Train both ML models on generated training data.
+
+        ``notify`` is an optional callback ``notify(model_id, status, detail)``
+        used to stream live progress to the UI. It is entirely optional so the
+        classifier keeps working when called directly (e.g. from scripts).
+        """
+        if notify is None:
+            notify = lambda *a, **k: None  # noqa: E731
         print("[*] Training ML models...")
+        notify("scaler", "fitting", "fitting on the synthetic reference corpus")
         X, y = self._generate_training_data()
         # Scale features
         X_scaled = self.scaler.fit_transform(X)
+        notify("scaler", "done", f"{X.shape[0]} samples × {X.shape[1]} features")
         # Split for evaluation
         X_train, X_test, y_train, y_test = train_test_split(
             X_scaled, y, test_size=0.2, random_state=42
         )
         # Train Random Forest
+        notify("random_forest", "training", "fitting 100 decision trees")
         self.rf_model.fit(X_train, y_train)
+        notify("random_forest", "done", "model fitted")
         # Train Isolation Forest on normal data only
         normal_indices = y_train == 0
+        notify("isolation_forest", "training", "fitting on normal baseline only")
         self.iso_model.fit(X_train[normal_indices])
+        notify("isolation_forest", "done", "model fitted")
         # Evaluate
+        notify("random_forest", "predicting", "evaluating on held-out split")
         y_pred = self.rf_model.predict(X_test)
         print("\n[*] Random Forest Performance:")
         print(classification_report(y_test, y_pred,
             target_names=['Normal', 'Vulnerability']))
         self.is_trained = True
         print("[*] Models trained successfully")
-    def classify(self, feature_list, responses):
-        """Classify responses using ML plus behavioral and technical evidence."""
+    def classify(self, feature_list, responses, on_model=None):
+        """Classify responses using ML plus behavioral and technical evidence.
+
+        ``on_model`` is an optional callback ``on_model(model_id, status, detail)``
+        that streams live model activity to the UI as each model runs.
+        """
+        # Remember whether a live callback was supplied before defaulting it,
+        # so processed states only linger for interactive (web UI) scans.
+        interactive = on_model is not None
+        if on_model is None:
+            on_model = lambda *a, **k: None  # noqa: E731
+
+        def notify(model_id, status, detail=""):
+            on_model(model_id, status, detail)
+            if interactive:
+                time.sleep(MODEL_STEP_DWELL)
+
         if not self.is_trained:
-            self._train()
+            self._train(notify)
         detections = []
         if not feature_list:
             print("[!] No features to classify")
             return detections
         X = np.array([f['features'] for f in feature_list])
+        notify("scaler", "predicting", f"scaling {len(feature_list)} samples")
         X_scaled = self.scaler.transform(X)
+        notify("scaler", "done", "features scaled")
+        notify("random_forest", "predicting",
+               f"scoring {len(feature_list)} responses")
         rf_predictions = self.rf_model.predict(X_scaled)
         rf_probabilities = self.rf_model.predict_proba(X_scaled)
+        notify("random_forest", "done", "responses scored")
+        notify("isolation_forest", "predicting",
+               f"scoring {len(feature_list)} responses")
         iso_predictions = self.iso_model.predict(X_scaled)
+        notify("isolation_forest", "done", "outliers scored")
         for i, (feat, rf_pred, iso_pred) in enumerate(
             zip(feature_list, rf_predictions, iso_predictions)
         ):

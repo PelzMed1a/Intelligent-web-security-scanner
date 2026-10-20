@@ -1,4 +1,5 @@
 import requests
+from scanner_http import build_session
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin, urlparse
 from crawler.selenium_renderer import SeleniumRenderer
@@ -9,11 +10,8 @@ class Crawler:
         self.base_url = base_url
         self.visited = set()
         self.endpoints = []
-        self.session = requests.Session()
+        self.session = build_session()
         self.renderer = SeleniumRenderer(headless=True)
-        self.session.headers.update({
-            'User-Agent': 'Mozilla/5.0 (Scanner Research Tool)'
-        })
 
         # Selenium renderer
         self.renderer = SeleniumRenderer(headless=True)

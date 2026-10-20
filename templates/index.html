@@ -293,6 +293,153 @@
             border: 1px solid #10b981;
             color: #6ee7b7;
         }
+
+        /* --- Live scan status ------------------------------------------- */
+        .status-card {
+            background: #1e293b;
+            border: 1px solid #334155;
+            border-radius: 12px;
+            padding: 20px 24px;
+            margin-bottom: 24px;
+        }
+        .status-head {
+            display: flex;
+            align-items: baseline;
+            justify-content: space-between;
+            gap: 12px;
+        }
+        .status-stage {
+            font-size: 17px;
+            font-weight: 600;
+            color: #e2e8f0;
+        }
+        .status-pct {
+            font-size: 20px;
+            font-weight: 700;
+            color: #0D9488;
+            font-variant-numeric: tabular-nums;
+        }
+        .status-desc {
+            font-size: 12px;
+            color: #7c8ba1;
+            margin-top: 2px;
+            min-height: 16px;
+        }
+        .status-card.done .status-stage { color: #6ee7b7; }
+        .status-card.error .status-stage { color: #fca5a5; }
+
+        /* horizontal stage stepper */
+        .stepper {
+            display: flex;
+            align-items: flex-start;
+            margin: 18px 0;
+        }
+        .step {
+            position: relative;
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 6px;
+            text-align: center;
+        }
+        .step:not(:last-child)::after {
+            content: '';
+            position: absolute;
+            top: 13px;
+            left: 50%;
+            width: 100%;
+            height: 2px;
+            background: #334155;
+            z-index: 0;
+        }
+        .step.done:not(:last-child)::after { background: #10b981; }
+        .step-dot {
+            position: relative;
+            z-index: 1;
+            width: 28px;
+            height: 28px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            font-weight: 600;
+            border-radius: 50%;
+            background: #0D1B2A;
+            border: 2px solid #334155;
+            color: #64748b;
+        }
+        .step.active .step-dot {
+            border-color: #0D9488;
+            color: #e2e8f0;
+            box-shadow: 0 0 0 3px rgba(13, 148, 136, 0.2);
+        }
+        .step.done .step-dot {
+            border-color: #10b981;
+            background: #10b981;
+            color: #0D1B2A;
+        }
+        .step.error .step-dot {
+            border-color: #ef4444;
+            background: #ef4444;
+            color: #ffffff;
+        }
+        .step-name {
+            font-size: 11px;
+            color: #64748b;
+        }
+        .step.active .step-name { color: #cbd5e1; font-weight: 600; }
+        .step.done .step-name { color: #94a3b8; }
+
+        /* model chips */
+        .model-chips {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+        .chip {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 12px;
+            border-radius: 8px;
+            background: #0D1B2A;
+            border: 1px solid #334155;
+            font-size: 12px;
+            color: #94a3b8;
+        }
+        .chip-dot {
+            width: 7px;
+            height: 7px;
+            border-radius: 50%;
+            background: #475569;
+        }
+        .chip-name { font-weight: 600; }
+        .chip-state {
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: #64748b;
+        }
+        .chip.working {
+            border-color: #0D9488;
+            color: #cbd5e1;
+        }
+        .chip.working .chip-dot {
+            background: #0D9488;
+            animation: blink 1.2s ease-in-out infinite;
+        }
+        .chip.working .chip-state { color: #5eead4; }
+        .chip.ready {
+            border-color: #10b981;
+            color: #cbd5e1;
+        }
+        .chip.ready .chip-dot { background: #10b981; }
+        .chip.ready .chip-state { color: #6ee7b7; }
+        @keyframes blink {
+            0%, 100% { opacity: 1; }
+            50%      { opacity: 0.3; }
+        }
     </style>
 </head>
 <body>
@@ -338,6 +485,17 @@
             <div class="progress-fill" id="progressFill"></div>
         </div>
         <div class="status-text" id="statusText"></div>
+    </div>
+
+    <!-- Live Scan Status -->
+    <div class="status-card" id="statusSection" style="display: none;">
+        <div class="status-head">
+            <div class="status-stage" id="activityText">Starting up…</div>
+            <div class="status-pct" id="livePct">0%</div>
+        </div>
+        <div class="status-desc" id="activitySub">Getting ready</div>
+        <div class="stepper" id="stageList"></div>
+        <div class="model-chips" id="modelList"></div>
     </div>
 
     <!-- Stats -->
@@ -397,6 +555,16 @@
         document.getElementById('resultsContainer').innerHTML = '';
         updateStats([], 0);
 
+        // Reset the live status panel
+        const statusSection = document.getElementById('statusSection');
+        statusSection.className = 'status-card';
+        statusSection.style.display = 'block';
+        document.getElementById('activityText').textContent = 'Starting up…';
+        document.getElementById('activitySub').textContent = 'Getting ready';
+        document.getElementById('livePct').textContent = '0%';
+        document.getElementById('stageList').innerHTML = '';
+        document.getElementById('modelList').innerHTML = '';
+
         // Start scan
         const formData = new FormData();
         formData.append('target_url', targetUrl);
@@ -411,8 +579,9 @@
                     showError(data.error);
                     return;
                 }
-                // Poll for results
-                scanInterval = setInterval(pollResults, 2000);
+                // Poll for results (short interval so fast-moving stages and
+                // model states are actually rendered while they run).
+                scanInterval = setInterval(pollResults, 300);
             })
             .catch(e => showError(e.message));
     }
@@ -425,16 +594,8 @@
                 document.getElementById('progressFill').style.width =
                     progress + '%';
 
-                const messages = {
-                    0: 'Initialising...',
-                    20: 'Crawling target — discovering endpoints...',
-                    50: 'Fuzzing — injecting payloads...',
-                    70: 'Analyzing responses — extracting features...',
-                    90: 'ML Classification — detecting anomalies...',
-                    100: 'Generating vulnerability report...'
-                };
-                const msg = messages[progress] || `Progress: ${progress}%`;
-                document.getElementById('statusText').textContent = msg;
+                // The live panel renders the friendly status text for us.
+                renderStatus(data);
 
                 if (data.status === 'complete') {
                     clearInterval(scanInterval);
@@ -444,6 +605,100 @@
                     showError(data.error || 'Scan failed');
                 }
             });
+    }
+
+    // High-level labels for the live panel (kept deliberately plain).
+    const STAGE_META = {
+        crawl:    { name: 'Crawl',    active: 'Crawling the site' },
+        fuzz:     { name: 'Fuzz',     active: 'Fuzzing endpoints' },
+        analyze:  { name: 'Analyze',  active: 'Analyzing responses' },
+        classify: { name: 'Classify', active: 'Running the models' },
+        report:   { name: 'Report',   active: 'Generating the report' }
+    };
+    const MODEL_META = {
+        scaler:           { name: 'Scaler' },
+        random_forest:    { name: 'Random Forest' },
+        isolation_forest: { name: 'Anomaly Detection' }
+    };
+    const MODEL_STATE = {
+        pending: 'Idle',
+        fitting: 'Fitting',
+        training: 'Training',
+        predicting: 'Predicting',
+        done: 'Ready',
+        error: 'Error'
+    };
+    const MODEL_WORKING = ['fitting', 'training', 'predicting'];
+    const STAGE_MARK = { done: '✓', error: '✕' };
+
+    // Render the live status panel from /results. Kept high-level on purpose:
+    // a status line, a stage stepper and model chips -- no raw technical detail.
+    function renderStatus(data) {
+        if (!data || (!data.stages && !data.models)) return;
+
+        const card = document.getElementById('statusSection');
+        card.style.display = 'block';
+
+        const stages = data.stages || [];
+        const models = data.models || [];
+        const activeIdx = stages.findIndex(s => s.status === 'active');
+        const complete = data.status === 'complete';
+        const errored = data.status === 'error';
+        const activeStage = activeIdx >= 0 ? stages[activeIdx] : null;
+        const meta = activeStage ? STAGE_META[activeStage.id] : null;
+
+        card.className = 'status-card' +
+            (errored ? ' error' : complete ? ' done' : '');
+
+        // Status line
+        const stageEl = document.getElementById('activityText');
+        const descEl = document.getElementById('activitySub');
+        if (errored) {
+            stageEl.textContent = 'Scan failed';
+            descEl.textContent = 'Check the log and try again';
+        } else if (complete) {
+            const n = (data.vulnerabilities || []).length;
+            stageEl.textContent = 'Scan complete';
+            descEl.textContent = n === 1
+                ? '1 finding ready'
+                : `${n} findings ready`;
+        } else if (meta) {
+            stageEl.textContent = meta.active;
+            descEl.textContent =
+                `Step ${activeIdx + 1} of ${stages.length} · ${meta.name}`;
+        } else {
+            stageEl.textContent = 'Starting up…';
+            descEl.textContent = 'Getting ready';
+        }
+        document.getElementById('livePct').textContent =
+            Math.round(data.progress || 0) + '%';
+
+        // Keep the small status line in the card above in sync.
+        document.getElementById('statusText').textContent =
+            stageEl.textContent;
+
+        // Stage stepper (number, or a tick when complete)
+        document.getElementById('stageList').innerHTML = stages.map((s, i) => {
+            const m = STAGE_META[s.id] || { name: s.id };
+            const mark = STAGE_MARK[s.status] || (i + 1);
+            return `<div class="step ${s.status}">
+                        <div class="step-dot">${mark}</div>
+                        <div class="step-name">${m.name}</div>
+                    </div>`;
+        }).join('');
+
+        // Model chips
+        document.getElementById('modelList').innerHTML = models.map(m => {
+            const mm = MODEL_META[m.id] || { name: m.label };
+            const cls = MODEL_WORKING.includes(m.status)
+                ? 'working'
+                : (m.status === 'done' ? 'ready' : '');
+            return `<div class="chip ${cls}">
+                        <span class="chip-dot"></span>
+                        <span class="chip-name">${mm.name}</span>
+                        <span class="chip-state">${MODEL_STATE[m.status] || m.status}</span>
+                    </div>`;
+        }).join('');
     }
 
     function showResults(vulns) {
@@ -563,6 +818,10 @@
         document.getElementById('scanBtn').disabled = false;
         document.getElementById('scanBtn').textContent = 'Start Scan';
         document.getElementById('statusText').textContent = 'Error: ' + msg;
+        const card = document.getElementById('statusSection');
+        card.className = 'status-card error';
+        document.getElementById('activityText').textContent = 'Scan failed';
+        document.getElementById('activitySub').textContent = msg;
         if (scanInterval) clearInterval(scanInterval);
     }
 

@@ -31,9 +31,8 @@ class Reporter:
                 best_by_key[dedup_key] = detection
 
         report = []
-        for i, detection in enumerate(best_by_key.values()):
+        for detection in best_by_key.values():
             report_entry = {
-                'id': f"VULN-{i+1:03d}",
                 'target_url': target_url,
                 'vulnerable_url': detection['url'],
                 'input_field': detection['input_field'],
@@ -62,12 +61,22 @@ class Reporter:
                 'verification_status': self._get_verification_status(detection)
             }
             report.append(report_entry)
-        # Sort by severity
-        severity_order = {
-            'Critical': 0, 'High': 1, 'Medium': 2, 'Low': 3
-        }
-        report.sort(key=lambda x: severity_order.get(x['severity'], 4))
-        print(f"[*] Report generated: {len(report)} unique vulnerabilities")
+        # Number the findings in the order they were discovered, then show
+        # them in exactly that order so the list reads VULN-001, VULN-002,
+        # ... VULN-007 from top to bottom. The IDs are zero-padded, so plain
+        # string ordering is already correct.
+        for number, entry in enumerate(report, start=1):
+            entry['id'] = f"VULN-{number:03d}"
+        report.sort(key=lambda entry: entry['id'])
+
+        listed = (
+            f"{report[0]['id']}..{report[-1]['id']}" if report else "none"
+        )
+        print(
+            f"[*] Report generated: {len(report)} unique vulnerabilities "
+            f"listed as {listed}",
+            flush=True,
+        )
         return report
     def _is_stronger(self, a, b):
         """True if detection `a` is stronger evidence than `b` for the
