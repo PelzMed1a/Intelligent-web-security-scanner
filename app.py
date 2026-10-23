@@ -1,4 +1,8 @@
-from flask import Flask, render_template, request, jsonify
+from flask import (Flask, render_template, request, jsonify, send_file,
+                   abort)
+from urllib.parse import quote
+import html
+import io
 import threading
 import json
 import os
@@ -81,6 +85,8 @@ class StageTimer:
 scan_results = {
     "status": "idle",
     "target": "",
+    "started_at": "",
+    "finished_at": "",
     "vulnerabilities": [],
     "progress": 0,
     "total_tests": 0,
@@ -213,6 +219,8 @@ def start_scan():
     # Reset results
     scan_results['status'] = 'running'
     scan_results['target'] = target_url
+    scan_results['started_at'] = time.strftime("%Y-%m-%d %H:%M:%S")
+    scan_results['finished_at'] = ""
     scan_results['vulnerabilities'] = []
     scan_results['progress'] = 0
     reset_scan_status()
@@ -247,32 +255,171 @@ REPORTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                            'reports')
 
 
+def _report_payload(target_url, report, scanned_at, finished_at=None):
+    """Normalise one scan into the shape saved on disk and exported to PDF."""
+    return {
+        'target': target_url,
+        'scanned_at': scanned_at,
+        'finished_at': finished_at or time.strftime("%Y-%m-%d %H:%M:%S"),
+        'finding_count': len(report),
+        'vulnerabilities': report,
+    }
+
+
 def _save_report(target_url, report, started_at):
-    """Write one scan's finished report to disk and return the file path.
+    """Write one scan's finished report to disk.
 
     The scanner's results used to live only in memory, so the moment the
     next scan started, the previous report was gone. Each scan now leaves
     a dated JSON file behind instead.
+
+    Returns (path, payload); path is None if writing failed, but the
+    payload is always returned so a PDF can still be produced on demand.
     """
+    payload = _report_payload(target_url, report, started_at)
     try:
         os.makedirs(REPORTS_DIR, exist_ok=True)
         stamp = started_at.replace(' ', '_').replace(':', '-')
         host = re.sub(r'[^A-Za-z0-9.-]+', '_', target_url.split('//')[-1])
         path = os.path.join(REPORTS_DIR, f"scan_{stamp}_{host}.json")
-        payload = {
-            'target': target_url,
-            'scanned_at': started_at,
-            'finished_at': time.strftime("%Y-%m-%d %H:%M:%S"),
-            'finding_count': len(report),
-            'vulnerabilities': report,
-        }
         with open(path, 'w', encoding='utf-8') as fh:
             json.dump(payload, fh, indent=2)
-        return path
+        return path, payload
     except Exception as exc:
         # A report that cannot be saved must never fail the scan itself.
         log(f"  Report not saved: {exc}")
+        return None, payload
+
+
+def _save_report_pdf(payload, json_path):
+    """Write the PDF next to the JSON. Best effort: never fails the scan."""
+    try:
+        from reporter.pdf_report import write_pdf
+        pdf_path = json_path[:-5] + '.pdf'
+        write_pdf(payload, pdf_path)
+        return pdf_path
+    except Exception as exc:
+        log(f"  PDF not saved   : {exc}")
         return None
+
+
+def _pdf_filename(payload):
+    """Build a readable download name from the report metadata."""
+    stamp = (str(payload.get('scanned_at') or '')
+             .replace(' ', '_').replace(':', '-'))
+    if not stamp:
+        stamp = time.strftime("%Y-%m-%d_%H-%M-%S")
+    target = str(payload.get('target') or 'scan')
+    host = re.sub(r'[^A-Za-z0-9.-]+', '_', target.split('//')[-1])
+    return f"scan_{stamp}_{host}.pdf"
+
+
+def _pdf_response(payload, filename):
+    """Turn a report payload into a downloadable PDF response."""
+    try:
+        from reporter.pdf_report import render_pdf_bytes
+        pdf = render_pdf_bytes(payload)
+    except Exception as exc:
+        log(f"  PDF export failed: {exc}")
+        return jsonify({"error": f"PDF export failed: {exc}"}), 500
+    return send_file(io.BytesIO(pdf), mimetype='application/pdf',
+                     as_attachment=True, download_name=filename)
+
+
+@app.route('/reports')
+def saved_reports():
+    """List every report saved on disk, each with a PDF download link."""
+    try:
+        names = sorted(
+            (n for n in os.listdir(REPORTS_DIR) if n.endswith('.json')),
+            reverse=True,
+        )
+    except FileNotFoundError:
+        names = []
+
+    items = []
+    for name in names:
+        base = name[:-5]
+        summary = 'Unreadable report file'
+        try:
+            with open(os.path.join(REPORTS_DIR, name),
+                      encoding='utf-8') as fh:
+                data = json.load(fh)
+            summary = (f"{data.get('target') or 'Unknown target'} - "
+                       f"{data.get('finding_count', 0)} findings - "
+                       f"{data.get('scanned_at') or 'time not recorded'}")
+        except Exception:
+            pass
+        items.append(
+            f'<li><a href="/reports/{quote(base)}.pdf">{html.escape(base)}</a>'
+            f'<span class="meta">{html.escape(summary)}</span></li>'
+        )
+
+    if items:
+        body = f'<ul>{"".join(items)}</ul>'
+    else:
+        body = '<p class="meta">No reports have been saved yet. Run a scan.</p>'
+
+    page = f"""<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<title>Saved scan reports</title>
+<style>
+  body {{ font-family: 'Segoe UI', sans-serif; background: #0D1B2A;
+         color: #e2e8f0; margin: 0; padding: 40px; }}
+  h1 {{ font-size: 20px; color: #14b8a6; margin-bottom: 4px; }}
+  p.lead {{ color: #94a3b8; margin-bottom: 24px; font-size: 13px; }}
+  ul {{ list-style: none; padding: 0; max-width: 860px; }}
+  li {{ background: #16283d; border: 1px solid #22334a;
+        border-radius: 8px; padding: 14px 18px; margin-bottom: 10px; }}
+  a {{ color: #5eead4; text-decoration: none; font-weight: 600;
+       font-size: 14px; }}
+  a:hover {{ text-decoration: underline; }}
+  .meta {{ display: block; color: #94a3b8; font-size: 12px;
+           margin-top: 4px; }}
+  .back {{ display: inline-block; margin-top: 20px; font-size: 13px; }}
+</style></head>
+<body>
+  <h1>Saved scan reports</h1>
+  <p class="lead">Every finished scan is kept here. Download any report as
+     a PDF, or open the scanner to run a new scan.</p>
+  {body}
+  <a class="back" href="/">&larr; Back to the scanner</a>
+</body></html>"""
+    return page
+
+
+@app.route('/reports/<path:filename>')
+def download_saved_report(filename):
+    """Download one previously saved report as a PDF."""
+    safe = os.path.basename(filename)
+    if not safe.endswith('.pdf'):
+        abort(404)
+    json_path = os.path.join(REPORTS_DIR, safe[:-4] + '.json')
+    if not os.path.isfile(json_path):
+        abort(404)
+    try:
+        with open(json_path, encoding='utf-8') as fh:
+            payload = json.load(fh)
+    except Exception as exc:
+        log(f"  Report unreadable: {exc}")
+        abort(500)
+    return _pdf_response(payload, safe)
+
+
+@app.route('/report/latest.pdf')
+def download_latest_report():
+    """Download the most recent completed scan as a PDF."""
+    if scan_results.get('status') != 'complete':
+        return jsonify({
+            "error": "No completed scan to export yet."
+        }), 400
+    payload = _report_payload(
+        scan_results.get('target', ''),
+        scan_results.get('vulnerabilities') or [],
+        scan_results.get('started_at') or '',
+        scan_results.get('finished_at') or None,
+    )
+    return _pdf_response(payload, _pdf_filename(payload))
 
 
 def _log_scan_summary(target_url, started_at, scan_started, durations,
@@ -333,6 +480,7 @@ def run_scan(target_url, username=None, password=None):
 
     scan_started = time.monotonic()
     started_at = time.strftime("%Y-%m-%d %H:%M:%S")
+    scan_results['started_at'] = started_at
     durations = {}
     counts = {"endpoints": 0, "responses": 0, "features": 0,
               "detections": 0}
@@ -419,11 +567,15 @@ def run_scan(target_url, username=None, password=None):
         set_stage("report", "done", f"{len(report)} unique findings")
         scan_results['status'] = 'complete'
         scan_results['progress'] = 100
+        scan_results['finished_at'] = time.strftime("%Y-%m-%d %H:%M:%S")
         _refresh_activity()
 
-        saved_report = _save_report(target_url, report, started_at)
+        saved_report, payload = _save_report(target_url, report, started_at)
         if saved_report:
             log(f"  Saved report    : {saved_report}")
+            saved_pdf = _save_report_pdf(payload, saved_report)
+            if saved_pdf:
+                log(f"  Saved PDF       : {saved_pdf}")
 
         _log_scan_summary(target_url, started_at, scan_started, durations,
                           counts, report)

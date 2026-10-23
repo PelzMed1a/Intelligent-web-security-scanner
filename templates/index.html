@@ -276,7 +276,41 @@
             text-transform: uppercase;
             letter-spacing: 1px;
             margin-bottom: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            flex-wrap: wrap;
         }
+        .report-actions {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .btn-report {
+            font: inherit;
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: none;
+            letter-spacing: 0;
+            padding: 7px 13px;
+            border-radius: 6px;
+            border: 1px solid #22334a;
+            background: #16283d;
+            color: #5eead4;
+            cursor: pointer;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            line-height: 1.2;
+        }
+        .btn-report:hover { background: #1c3450; }
+        .btn-report.primary {
+            background: #0f766e;
+            border-color: #0f766e;
+            color: #ffffff;
+        }
+        .btn-report.primary:hover { background: #0d9488; }
         .alert {
             padding: 12px 16px;
             border-radius: 8px;
@@ -520,7 +554,16 @@
 
     <!-- Results -->
     <div class="results-section" id="resultsSection">
-        <div class="section-title">📋 Vulnerability Report</div>
+        <div class="section-title">
+            <span>📋 Vulnerability Report</span>
+            <span class="report-actions">
+                <a class="btn-report" href="/reports" target="_blank"
+                   rel="noopener">Saved reports</a>
+                <button class="btn-report primary" onclick="downloadPdf()">
+                    Download PDF
+                </button>
+            </span>
+        </div>
         <div id="resultsContainer"></div>
     </div>
 
@@ -699,6 +742,12 @@
                         <span class="chip-state">${MODEL_STATE[m.status] || m.status}</span>
                     </div>`;
         }).join('');
+    }
+
+    function downloadPdf() {
+        // Always exports the scan that is currently on screen. The file is
+        // built on the server and served as an attachment.
+        window.location.href = '/report/latest.pdf';
     }
 
     function showResults(vulns) {
